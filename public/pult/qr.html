@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>QR-коды столов · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<link rel="shortcut icon" href="/favicon.ico?v=4" />
+<style>
+  body { margin: 0; padding: calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px)); background: #fff; color: #111;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .note { color: #666; font-size: 14px; margin: 0 0 18px; max-width: 640px; line-height: 1.5; }
+  .note b { color: #111; }
+  .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .card {
+    border: 2px solid #111; border-radius: 16px; padding: 18px; text-align: center;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .card img { width: 100%; max-width: 200px; }
+  .card .venue { font-weight: 800; font-size: 15px; letter-spacing: .4px; }
+  .card .table { font-size: 26px; font-weight: 900; margin: 4px 0; }
+  .card .hint { font-size: 13px; color: #444; line-height: 1.35; }
+  .card .dom { font-size: 10px; color: #777; margin-top: 6px; letter-spacing: .2px; }
+  .err { color: #b00; }
+  @media print { .note, h1, .toolbar { display: none; } body { padding: 0; } }
+</style>
+</head>
+<body>
+<h1>QR-коды столов — Серп</h1>
+<p class="note">Печатайте (Cmd+P), режьте по рамкам и клейте на столы. Каждый код подписан:
+подобрать чужой стол, поменяв цифру в адресе, нельзя.<br />
+<b>Домен под кодом печатается специально</b> — чтобы гость мог заметить, если поверх наклеят
+чужой QR. Проверяйте наклейки раз в неделю.</p>
+<div class="sheet" id="sheet"><p class="err" id="msg">Загружаю…</p></div>
+<script src="qr-print.js"></script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

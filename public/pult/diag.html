@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Проверка устройства · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<style>
+  body { margin:0; padding: calc(20px + env(safe-area-inset-top,0px)) calc(20px + env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) calc(20px + env(safe-area-inset-left,0px)); background:#15100c; color:#f3e9df;
+         font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  p.sub { color:#a08b78; margin:0 0 18px; font-size:13px; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:10px 12px;
+         border:1px solid #3a2c20; border-radius:12px; margin-bottom:8px; background:#241a13; }
+  .row b { font-weight:600; }
+  .ok { color:#4cc9a0; } .bad { color:#ff4d4d; } .warn { color:#ffb347; }
+  .val { text-align:right; word-break:break-word; max-width:60%; font-size:13px; color:#a08b78; }
+  button { width:100%; margin-top:14px; padding:15px; border:0; border-radius:14px;
+           background:#ff7a18; color:#fff; font-size:16px; font-weight:700; }
+  button.ghost { background:rgba(255,255,255,.08); color:#f3e9df; }
+  #log { margin-top:16px; font-size:12px; color:#6b5848; word-break:break-all; }
+</style>
+</head>
+<body>
+<h1>Проверка устройства</h1>
+<p class="sub">Откройте эту страницу на проблемном планшете и покажите результат Андрею.</p>
+<div id="out"></div>
+<button id="fix">Сбросить кэш приложения и перезапустить</button>
+<button id="open" class="ghost">Открыть пульт</button>
+<div id="log"></div>
+
+<script>
+/* Намеренно без современного синтаксиса: страница должна открыться даже там,
+   где основной пульт падает из-за версии браузера. */
+var out = document.getElementById("out");
+function row(name, value, state) {
+  var d = document.createElement("div");
+  d.className = "row";
+  d.innerHTML = "<b class='" + (state || "") + "'>" + name + "</b><span class='val'>" + value + "</span>";
+  out.appendChild(d);
+}
+function has(fn) { try { return !!fn(); } catch (e) { return false; } }
+
+var m = navigator.userAgent.match(/Chrome\/(\d+)/);
+var chrome = m ? parseInt(m[1], 10) : 0;
+row("Браузер", navigator.userAgent.slice(0, 90), "");
+row("Версия Chrome", chrome ? chrome : "не Chrome", chrome && chrome < 100 ? "bad" : "ok");
+row("Сеть", navigator.onLine ? "есть" : "нет", navigator.onLine ? "ok" : "bad");
+row("Service Worker", ("serviceWorker" in navigator) ? "поддерживается" : "нет", ("serviceWorker" in navigator) ? "ok" : "warn");
+row("Уведомления", ("Notification" in window) ? Notification.permission : "нет", "");
+row("Хранилище", has(function () { localStorage.setItem("t", "1"); localStorage.removeItem("t"); return true; }) ? "работает" : "заблокировано", "");
+row("Современный CSS (dvh)", has(function () { return CSS.supports("height", "100dvh"); }) ? "да" : "нет — используем запасной", "");
+row("color-mix", has(function () { return CSS.supports("color", "color-mix(in srgb, red 50%, blue)"); }) ? "да" : "нет — цвета проще", "");
+row("Стрелочные функции ES2020", has(function () { return eval("(function(){var o={a:{b:1}};return o?.a?.b===1})()"); }) ? "да" : "НЕТ — браузер старый", "");
+
+var t0 = Date.now();
+fetch("/api/config", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+  row("Связь с сервером", "ответ за " + (Date.now() - t0) + " мс · столов " + d.tables, "ok");
+}).catch(function (e) {
+  row("Связь с сервером", "ОШИБКА: " + e.message, "bad");
+});
+
+if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+  navigator.serviceWorker.getRegistrations().then(function (rs) {
+    row("Установленных SW", rs.length, "");
+  });
+}
+if (window.caches && caches.keys) {
+  caches.keys().then(function (ks) { row("Кэшей приложения", ks.join(", ") || "нет", ""); });
+}
+
+document.getElementById("fix").onclick = function () {
+  var log = document.getElementById("log");
+  log.textContent = "Чищу…";
+  var finish = function () { log.textContent = "Готово. Перезапускаю…"; setTimeout(function () { location.href = "/pult/"; }, 800); };
+  var p = (window.caches && caches.keys)
+    ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); })
+    : Promise.resolve();
+  p.then(function () {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+      return navigator.serviceWorker.getRegistrations().then(function (rs) {
+        return Promise.all(rs.map(function (r) { return r.unregister(); }));
+      });
+  }).then(finish, finish);
+};
+document.getElementById("open").onclick = function () { location.href = "/pult/"; };
+</script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#15100c">
+<title>Стамбул · зал</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../pult/icons/icon3-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* ==========================================================================
+   «Стамбул · зал» — телефон официанта.
+   Две задачи и обе на ходу, одной рукой, в полумраке: заказать забивку на стол
+   и увидеть, какому столу пора сервис. Поэтому крупные цели (44px), три вкладки
+   внизу под большой палец и никаких настроек.
+   Размеры и цвета — те же токены, что у пульта: одно заведение, один язык.
+   ========================================================================== */
+:root{
+  --bg:#15100c; --bg2:#1e1611; --card:#241a13; --line:#3a2c20;
+  --txt:#f3e9df; --muted:#a08b78; --dim:#6b5848;
+  --ember:#ff7a18; --ember2:#ffb347; --ok:#4cc9a0; --danger:#ff4d4d;
+  --r1:#ff7a18; --r2:#4cc9a0; --r3:#5b9dd9; --r4:#ff4d4d;
+  --fs-xl:20px; --fs-lg:16px; --fs-md:14px; --fs-sm:12px; --fs-xs:11px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --r-sm:10px; --r-md:14px; --r-lg:20px; --r-pill:999px;
+  --tap:44px;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{
+  margin:0;position:fixed;inset:0;height:100%;width:100%;
+  display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(1200px 600px at 50% -10%,#2a1d12 0%,transparent 60%),var(--bg);
+  color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+  font-size:var(--fs-md);-webkit-font-smoothing:antialiased;
+  touch-action:manipulation;overscroll-behavior:none;
+}
+.hidden{display:none !important}
+button{font:inherit;color:inherit}
+
+/* ---------- шапка ---------- */
+header{
+  flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-2);
+  padding:calc(var(--safe-t) + 10px) var(--sp-3) 10px;
+  background:linear-gradient(#1e1611,#1a130e);border-bottom:1px solid var(--line);
+}
+.hd-t{flex:1 1 auto;min-width:0}
+.hd-t b{display:block;font-size:var(--fs-lg);line-height:1.2}
+.hd-t span{display:block;font-size:var(--fs-xs);color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd-btn{
+  flex:0 0 auto;width:var(--tap);height:var(--tap);border:1px solid var(--line);
+  border-radius:var(--r-md);background:var(--card);font-size:19px;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+}
+.hd-btn.on{border-color:var(--ember);color:var(--ember2)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--danger);margin-right:5px}
+.dot.ok{background:var(--ok)}
+
+/* ---------- содержимое ---------- */
+main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:var(--sp-3) var(--sp-3) var(--sp-4)}
+h3{margin:0 0 var(--sp-2);font-size:var(--fs-md);color:var(--muted);font-weight:600}
+.hint{color:var(--muted);font-size:var(--fs-sm);margin:var(--sp-2) 0}
+.empty{text-align:center;color:var(--dim);padding:44px var(--sp-3)}
+.empty div{font-size:38px;margin-bottom:var(--sp-2)}
+
+/* ---------- сетка столов ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:var(--sp-2)}
+.tl{
+  position:relative;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--card);padding:var(--sp-2) var(--sp-1);min-height:74px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  text-align:center;overflow:hidden;
+}
+.tl .n{font-size:var(--fs-xl);font-weight:800;line-height:1}
+.tl .s{font-size:var(--fs-xs);color:var(--muted);line-height:1.25;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl.busy{border-color:transparent}
+.tl.rd1{background:rgba(255,122,24,.24)}
+.tl.rd2{background:rgba(76,201,160,.22)}
+.tl.rd3{background:rgba(91,157,217,.22)}
+.tl.rd4{background:rgba(255,77,77,.26)}
+.tl.over{animation:pulse 1.6s ease-in-out infinite;background:rgba(255,77,77,.34)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,77,77,.55)}50%{box-shadow:0 0 0 6px rgba(255,77,77,0)}}
+.tl .ord{position:absolute;top:3px;right:4px;font-size:var(--fs-xs)}
+.tl.hasord{outline:2px solid var(--ember2);outline-offset:-2px}
+.tl .t{font-variant-numeric:tabular-nums;font-size:var(--fs-sm);color:var(--txt);opacity:.9}
+
+/* ---------- карточки сервиса ---------- */
+.card{
+  border:1px solid var(--line);border-left-width:6px;border-radius:var(--r-md);
+  background:var(--card);padding:var(--sp-3);margin-bottom:var(--sp-2);
+  display:flex;align-items:center;gap:var(--sp-3);
+}
+.card.g{border-left-color:var(--ok)}
+.card.y{border-left-color:var(--ember2)}
+.card.r{border-left-color:var(--danger);background:rgba(255,77,77,.1)}
+.card .big{font-size:22px;font-weight:800;min-width:52px;flex:0 0 auto}
+.card .big .hk-n{display:block;font-size:var(--fs-xs);font-weight:600;color:var(--muted);
+  white-space:nowrap;margin-top:2px}
+.card .mid{flex:1 1 auto;min-width:0}
+.card .mid b{display:block;font-size:var(--fs-md)}
+.card .mid span{display:block;font-size:var(--fs-sm);color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .colr{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.card .clk{font-variant-numeric:tabular-nums;font-size:19px;font-weight:700;text-align:right}
+.card.r .clk{color:var(--danger)}
+.card.y .clk{color:var(--ember2)}
+/* «поменял угли» — двойной тап: телефон живёт в кармане, одиночное касание
+   не должно перематывать круг гостю */
+.card .coals{
+  /* ⚠️ Ширина ФИКСИРОВАНА: подпись меняется на «ещё раз ✓», и без этого кнопка
+     съезжала под пальцем ровно между первым и вторым тапом. */
+  min-height:var(--tap);min-width:130px;padding:0 var(--sp-2);text-align:center;white-space:nowrap;
+  border:1px solid var(--line);border-radius:var(--r-md);
+  background:rgba(255,122,24,.14);color:var(--ember2);
+  font-size:var(--fs-sm);font-weight:700;
+}
+.card .coals.armed{background:var(--ember);border-color:var(--ember);color:#241d14}
+
+/* ---------- ответы с планшета ----------
+   Ответ кальянщика на записку. Не гаснет сам: официант закрывает его «Понятно» —
+   иначе смысл ответа («он видел») теряется вместе со всплывашкой. */
+.rp-row{
+  border:1px solid var(--ok);border-radius:var(--r-md);
+  background:linear-gradient(135deg,#16302a,var(--card));
+  padding:var(--sp-3);margin-bottom:var(--sp-2);
+}
+.rp-row .who{font-size:var(--fs-xs);color:var(--muted)}
+.rp-row .txt{margin:4px 0 0;font-size:var(--fs-lg);font-weight:700}
+.rp-row .about{margin:4px 0 0;font-size:var(--fs-xs);color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-row .btn{margin-top:var(--sp-3);width:100%}
+
+/* ---------- лента заказов ---------- */
+.ord-row{border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);
+  padding:var(--sp-3);margin-bottom:var(--sp-2)}
+.ord-row .top{display:flex;align-items:center;gap:var(--sp-2)}
+.ord-row .top b{font-size:var(--fs-lg)}
+.ord-row .txt{margin:6px 0 0;font-size:var(--fs-md)}
+.ord-row .meta{margin-top:5px;font-size:var(--fs-xs);color:var(--muted)}
+.chip{display:inline-block;padding:3px 9px;border-radius:var(--r-pill);
+  font-size:var(--fs-xs);font-weight:700;white-space:nowrap}
+.chip.new{background:rgba(255,179,71,.2);color:var(--ember2)}
+.chip.taken{background:rgba(91,157,217,.2);color:#8fc2ec}
+.chip.done{background:rgba(76,201,160,.18);color:var(--ok)}
+.chip.cancel{background:rgba(160,139,120,.18);color:var(--muted)}
+.grow{flex:1 1 auto}
+
+/* ---------- нижняя навигация ---------- */
+nav{
+  flex:0 0 auto;display:flex;border-top:1px solid var(--line);background:#1a130e;
+  padding-bottom:var(--safe-b);
+}
+nav button{
+  flex:1 1 0;min-height:56px;border:0;background:transparent;color:var(--muted);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  font-size:var(--fs-xs);position:relative;
+}
+nav button.on{color:var(--ember2)}
+nav button i{font-style:normal;font-size:19px;line-height:1}
+nav .badge{
+  position:absolute;top:8px;left:50%;margin-left:6px;min-width:17px;height:17px;
+  border-radius:var(--r-pill);background:var(--danger);color:#fff;
+  font-size:10px;font-weight:800;line-height:17px;padding:0 4px;
+}
+
+/* ---------- шторка ---------- */
+.sheet-bg{position:fixed;inset:0;background:rgba(8,5,3,.72);z-index:40;
+  display:flex;align-items:flex-end;justify-content:center}
+.sheet{
+  width:100%;max-width:560px;max-height:92dvh;overflow-y:auto;
+  background:var(--bg2);border:1px solid var(--line);border-bottom:0;
+  border-radius:var(--r-lg) var(--r-lg) 0 0;padding:var(--sp-4);
+  padding-bottom:calc(var(--sp-4) + var(--safe-b));
+}
+.sheet h2{margin:0 0 var(--sp-1);font-size:var(--fs-xl)}
+.sheet .sub{margin:0 0 var(--sp-3);font-size:var(--fs-sm);color:var(--muted)}
+textarea,input[type=text]{
+  width:100%;background:#120d09;border:1px solid var(--line);border-radius:var(--r-md);
+  color:var(--txt);font:inherit;font-size:var(--fs-lg);padding:var(--sp-3);
+}
+textarea{min-height:76px;resize:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:var(--sp-2) 0 var(--sp-3)}
+.chips button{
+  border:1px solid var(--line);background:var(--card);border-radius:var(--r-pill);
+  padding:9px 13px;font-size:var(--fs-sm);min-height:38px;
+}
+.chips button.on{border-color:var(--ember);color:var(--ember2)}
+.acts{display:flex;gap:var(--sp-2);margin-top:var(--sp-3)}
+.btn{
+  flex:1 1 auto;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--card);font-size:var(--fs-lg);font-weight:600;padding:0 var(--sp-3);
+}
+.btn.primary{background:var(--ember);border-color:var(--ember);color:#241d14;font-weight:800}
+.btn.danger{color:var(--danger)}
+.btn:disabled{opacity:.45}
+.note{border:1px solid var(--line);border-radius:var(--r-md);background:#120d09;
+  padding:var(--sp-2) var(--sp-3);font-size:var(--fs-sm);color:var(--muted);margin-bottom:var(--sp-3)}
+.note b{color:var(--txt)}
+
+/* ---------- вход по ПИНу ---------- */
+#pinBox{position:fixed;inset:0;z-index:60;background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--sp-4)}
+#pinBox .logo{font-size:44px;margin-bottom:var(--sp-2)}
+#pinBox h1{margin:0 0 var(--sp-1);font-size:22px}
+#pinBox p{margin:0 0 var(--sp-4);color:var(--muted);font-size:var(--fs-sm);text-align:center}
+.dots{display:flex;gap:10px;margin-bottom:var(--sp-4);min-height:14px}
+.dots i{width:12px;height:12px;border-radius:50%;background:var(--line);display:block}
+.dots i.f{background:var(--ember2)}
+.pad{display:grid;grid-template-columns:repeat(3,80px);gap:12px}
+.pad button{height:64px;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--card);font-size:24px;font-weight:700}
+#pinErr{color:var(--danger);font-size:var(--fs-sm);margin-top:var(--sp-3);min-height:20px}
+
+/* всплывашка о связи/результате */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(78px + var(--safe-b));
+  z-index:50;background:#2c2118;border:1px solid var(--line);border-radius:var(--r-pill);
+  padding:10px 18px;font-size:var(--fs-sm);max-width:92vw;text-align:center;
+  opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+/* финальный круг: кнопка не «продлю», а «закрою» — цвет должен это различать */
+.coals.fin{border-color:var(--danger);color:var(--danger)}
+.coals.armed.fin{background:var(--danger);color:#fff;border-color:var(--danger)}
+/* «Стол 12 закрыт · Отменить» — 45 секунд над нижним меню */
+#undoBar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(78px + var(--safe-b));
+  z-index:55;display:flex;align-items:center;gap:10px;background:#2c2118;
+  border:1px solid var(--line);border-radius:var(--r-md);padding:8px 10px;
+  max-width:94vw;font-size:var(--fs-sm);font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#undoBar.hidden{display:none}
+#undoBar button{min-height:38px;padding:0 12px;border:1px solid var(--ember);border-radius:var(--r-sm);
+  background:transparent;color:var(--ember2);font:inherit;font-weight:800;flex:0 0 auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd-t">
+    <b id="hdName">Стамбул · зал</b>
+    <span id="hdSub"><i class="dot"></i>подключение…</span>
+  </div>
+  <button class="hd-btn" id="msgBtn" title="написать на планшет">✉️</button>
+  <button class="hd-btn" id="bellBtn" title="уведомления">🔕</button>
+  <button class="hd-btn" id="outBtn" title="сменить сотрудника">⎋</button>
+</header>
+
+<main id="main"></main>
+
+<nav>
+  <button data-tab="order" class="on"><i>💨</i>Забить</button>
+  <button data-tab="service"><i>🔥</i>Сервис<span class="badge hidden" id="bServ">0</span></button>
+  <button data-tab="feed"><i>📋</i>Заказы<span class="badge hidden" id="bFeed">0</span></button>
+</nav>
+
+<div id="toast"></div>
+
+<!-- откат закрытия: 45 секунд, зовёт ту же /api/undo, что и кнопка на пульте -->
+<div id="undoBar" class="hidden"><span id="undoBarText"></span><button id="undoBarBtn">↩︎ Отменить</button></div>
+
+<div id="pinBox">
+  <div class="logo">🌙</div>
+  <h1>Стамбул · зал</h1>
+  <p>Введите свой ПИН —<br>он подписывает заказы вашим именем.</p>
+  <div class="dots" id="pinDots"></div>
+  <div class="pad" id="pinPad"></div>
+  <div id="pinErr"></div>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   Телефон официанта. Данные берём из того же /api/calls, что и пульт:
+   одна точка правды, отдельного опроса заводить не надо.
+   ========================================================================== */
+const LS_KEY = "stambul.zal.key";
+const LS_ME  = "stambul.zal.me";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let me = (() => { try { return JSON.parse(localStorage.getItem(LS_ME) || "null"); } catch { return null; } })();
+let cfg = { venue: "Стамбул", tables: 40 };
+let view = { r1: 25, r2: 15, r3: 15 };
+let tables = {};            // ведущая копия — на сервере
+let orders = [];            // активные заказы (из /api/calls)
+let feed = [];              // лента заказов (из /api/orders, тянем при открытии вкладки)
+let flavors = [];           // подсказки вкусов
+let tab = "order";
+let conn = { ok: false, msg: "подключение…" };
+let sheet = null;           // {table, text}
+let pin = "";
+
+const getKey = () => localStorage.getItem(LS_KEY) || "";
+async function api(path, opts = {}) {
+  const key = getKey();
+  const o = { ...opts, headers: { ...(opts.headers || {}), "X-Pult-Key": key } };
+  if (o.body && !o.headers["Content-Type"]) o.headers["Content-Type"] = "application/json";
+  const r = await fetch(path, o);
+  if (r.status === 401) { logout("Сессия закончилась — войдите заново"); throw new Error("401"); }
+  return r;
+}
+const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) }).then((r) => r.json());
+
+let toastT = 0;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+/* ===== время ===== */
+function mmss(sec) {
+  const neg = sec < 0; let s = Math.abs(Math.round(sec));
+  const m = Math.floor(s / 60); s %= 60;
+  return (neg ? "-" : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+function ago(ts) {
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "только что";
+  if (m < 60) return m + " мин назад";
+  return Math.floor(m / 60) + "ч " + (m % 60) + "м назад";
+}
+/* норматив круга: снимок с сервера (h.plan) — как на пульте, чтобы цифры совпадали */
+const targetSec = (h) => (h.plan || (h.round <= 1 ? view.r1 : h.round === 2 ? view.r2 : view.r3)) * 60;
+const leftSec = (h) => targetSec(h) - (Date.now() - h.roundStart) / 1000;
+/* ФИНАЛЬНЫЙ КРУГ: кругов у заведения столько, сколько задал админ (Стамбул — три).
+   На последнем двойное нажатие не начинает круг, а завершает кальян. Четвёртого
+   круга нет — сервер его тоже не даст, здесь мы только говорим об этом словами. */
+const roundsCount = () => (Array.isArray(view.rs) && view.rs.length ? view.rs.length : 3);
+const isFinal = (h) => h && h.round >= roundsCount();
+const hookahsOf = (n) => (tables[n] && tables[n].hookahs) || [];
+/* по столу берём САМЫЙ горящий кальян: официанту важно «когда идти», а не средняя температура */
+function worst(n) {
+  const list = hookahsOf(n);
+  if (!list.length) return null;
+  return list.reduce((a, b) => (leftSec(b) < leftSec(a) ? b : a));
+}
+const buildName = (h) => {
+  const b = (h && h.build) || {};
+  if (b.mix && b.mix.length > 1) return b.flavor || "микс";
+  return [b.brand, b.flavor].filter(Boolean).join(" ");
+};
+
+/* ===== опрос ===== */
+let pollT = 0;
+async function poll() {
+  if (!getKey()) return;
+  try {
+    const d = await (await api("/api/calls", { cache: "no-store" })).json();
+    if (!d.ok) throw new Error(d.error || "ошибка");
+    tables = d.tables || {};
+    orders = d.orders || [];
+    if (d.view) view = { ...view, ...d.view };
+    if (Array.isArray(d.flavors)) flavors = d.flavors;
+    takeReplies(d.events || []);                       // ответы кальянщика на записки
+    conn = { ok: true, msg: d.youOnShift ? "" : "вы не на смене — столы скрыты" };
+    if (!d.youOnShift) shiftOn();          // телефон официанта заступает сам, руками не надо
+  } catch (e) {
+    conn = { ok: false, msg: "нет связи с сервером" };
+  }
+  draw();
+}
+const shiftOn = () => post("/api/shift", { on: true }).catch(() => {});
+
+async function loadFeed() {
+  try {
+    const d = await (await api("/api/orders", { cache: "no-store" })).json();
+    if (d.ok) feed = d.orders || [];
+  } catch {}
+  if (tab === "feed") draw();
+}
+
+/* ===== отрисовка ===== */
+function draw() {
+  $("hdName").textContent = me ? me.name : cfg.venue;
+  $("hdSub").innerHTML = `<i class="dot${conn.ok ? " ok" : ""}"></i>` +
+    esc(conn.msg || (cfg.venue + " · " + cfg.tables + " столов"));
+
+  const due = dueTables().length;
+  const mineWait = orders.filter((o) => o.status === "new").length;
+  badge("bServ", due); badge("bFeed", mineWait);
+
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  /* 40 столов и список сервиса не влезают в экран, а перерисовываем мы раз в
+     секунду (тикают таймеры). Подстановка innerHTML сбрасывает прокрутку в ноль —
+     список прыгал бы наверх у человека под рукой. Поэтому: одинаковую разметку
+     не трогаем вовсе, а при изменении возвращаем прокрутку на место. */
+  const el = $("main");
+  // палец на экране — структуру не трогаем (см. holdMain ниже)
+  if (mainBusy()) return;
+  const html = viewReplies()
+    + (tab === "order" ? viewOrder() : tab === "service" ? viewService() : viewFeed());
+  if (html === lastHtml) return;
+  const keep = el.scrollTop;
+  lastHtml = html;
+  el.innerHTML = html;
+  el.scrollTop = keep;
+}
+let lastHtml = "";
+/* ответы с планшета: живут, пока официант не нажмёт «Понятно» */
+const LS_RPD = "stambul.zal.replies";
+let replies = [];
+let rpDone = (() => { try { return new Set(JSON.parse(localStorage.getItem(LS_RPD) || "[]")); } catch { return new Set(); } })();
+let rpFirst = localStorage.getItem(LS_RPD) === null;   // первый запуск — старое не показываем
+function takeReplies(list) {
+  const mine = list.filter((e) => e.kind === "reply");
+  if (rpFirst) { rpFirst = false; for (const e of mine) rpDone.add(e.id); saveRpDone(); }
+  const fresh = mine.filter((e) => !rpDone.has(e.id));
+  if (fresh.length > replies.length && navigator.vibrate) navigator.vibrate([40, 60, 40]);
+  replies = fresh.sort((a, b) => a.ts - b.ts);
+}
+function saveRpDone() {
+  const arr = [...rpDone].slice(-200);
+  rpDone = new Set(arr);
+  localStorage.setItem(LS_RPD, JSON.stringify(arr));
+}
+function badge(id, n) {
+  const el = $(id);
+  el.textContent = n > 99 ? "99+" : n;
+  el.classList.toggle("hidden", !n);
+}
+const ordersFor = (n) => orders.filter((o) => String(o.table) === String(n));
+
+function roundClass(n) {
+  const list = hookahsOf(n);
+  if (!list.length) return "";
+  const r = Math.max(...list.map((h) => h.round || 1));
+  return " rd" + Math.min(4, r);
+}
+/* вкладка «Забить» — весь зал плиткой: свободные тёмные, занятые в цвете круга */
+function viewOrder() {
+  let out = `<h3>Тапните стол — напишите, что забить</h3><div class="grid">`;
+  for (let n = 1; n <= cfg.tables; n++) {
+    const list = hookahsOf(n);
+    const o = ordersFor(n);
+    const h = worst(n);
+    const over = h && leftSec(h) <= 0;
+    const cls = (list.length ? " busy" + roundClass(n) : "") + (over ? " over" : "") + (o.length ? " hasord" : "");
+    const sub = list.length
+      ? `<span class="t">${mmss(leftSec(h))}</span><span class="s">${isFinal(h) ? "финал" : "круг " + h.round}${list.length > 1 ? " · " + list.length + " каль." : ""}</span>`
+      : `<span class="s">свободен</span>`;
+    out += `<button class="tl${cls}" data-t="${n}">${o.length ? '<span class="ord">🕓</span>' : ""}` +
+      `<span class="n">${n}</span>${sub}</button>`;
+  }
+  // временные столы пульта («свой стол») тоже видны — иначе заказ на них не поставить
+  for (const k of Object.keys(tables)) {
+    if (!String(k).startsWith("c")) continue;
+    const h = worst(k), o = ordersFor(k);
+    out += `<button class="tl busy${roundClass(k)}${h && leftSec(h) <= 0 ? " over" : ""}${o.length ? " hasord" : ""}" data-t="${esc(k)}">` +
+      `<span class="n" style="font-size:14px">${esc(tables[k].label || "стол")}</span>` +
+      `<span class="t">${mmss(leftSec(h))}</span><span class="s">${isFinal(h) ? "финал" : "круг " + h.round}</span></button>`;
+  }
+  out += `</div>`;
+  if (!conn.ok) out += `<p class="hint">Нет связи — заказ сейчас не уйдёт. Попробуйте через минуту.</p>`;
+  return out;
+}
+
+/* столы, которым пора сервис (или вот-вот) — они же бейдж на вкладке */
+function dueTables() {
+  const res = [];
+  for (const k of Object.keys(tables)) {
+    const h = worst(k);
+    if (h && leftSec(h) <= 0) res.push(k);
+  }
+  return res;
+}
+/* ⚠️ Строка на КАЖДЫЙ кальян, а не на стол. Раньше показывался только самый
+   горящий — на столе с двумя кальянами второй пропадал из сервиса совсем, и
+   к нему просто не подходили. Сортировка тоже по кальянам: логистика идёт
+   по чашам, а не по столам. */
+function viewService() {
+  const rows = [];
+  for (const k of Object.keys(tables)) {
+    const list = hookahsOf(k);
+    list.forEach((h, i) => rows.push({ k, h, i, total: list.length }));
+  }
+  rows.sort((a, b) => leftSec(a.h) - leftSec(b.h));
+  if (!rows.length)
+    return `<div class="empty"><div>🌙</div>Занятых столов нет.<br>Как только кальянщик запустит стол — он появится здесь.</div>`;
+  const over = rows.filter((r) => leftSec(r.h) <= 0).length;
+  let out = over
+    ? `<h3 style="color:var(--danger)">Пора подойти: ${over} ${over === 1 ? "кальян" : "кальяна"}</h3>`
+    : `<h3>Все кальяны в норме · ${rows.length} в работе</h3>`;
+  for (const { k, h, i, total } of rows) {
+    const left = leftSec(h);
+    const cls = left <= 0 ? "r" : left < 300 ? "y" : "g";
+    const name = buildName(h);
+    const label = String(k).startsWith("c") ? (tables[k].label || "стол") : k;
+    const armed = isArmed(k, h.id);
+    out += `<div class="card ${cls}"><div class="big">${esc(label)}${
+      total > 1 ? `<span class="hk-n">кальян ${i + 1}/${total}</span>` : ""}</div>` +
+      `<div class="mid"><b>${isFinal(h) ? "финальный круг" : "круг " + h.round}</b>` +
+      `<span>${esc(name || "забивка не записана")}</span></div>` +
+      `<div class="colr"><div class="clk">${mmss(left)}</div>` +
+      `<button class="coals${armed ? " armed" : ""}${isFinal(h) ? " fin" : ""}" data-coals="${esc(String(k))}" data-hid="${esc(h.id)}">${
+        armed ? (isFinal(h) ? "ещё раз — закрыть" : "ещё раз ✓")
+          : isFinal(h) ? "завершить кальян" : "поменял угли"}</button></div></div>`;
+  }
+  // двойной тап — защита от случайного касания телефона в кармане
+  out += `<p class="hint">Строка на каждый кальян: на столе с двумя чашами углям
+    пора в разное время. «Поменял угли» — двойной тап: первый взводит, второй
+    запускает следующий круг. На планшете появится строка о том, что вы сделали.
+    На ${roundsCount()}-м круге он финальный: двойное нажатие завершает кальян, а когда
+    завершён последний — стол освобождается.</p>`;
+  return out;
+}
+
+const ST_LABEL = { new: "ждёт", taken: "забивают", done: "готово", cancel: "отменён" };
+function viewFeed() {
+  if (!feed.length)
+    return `<div class="empty"><div>📋</div>Заказов пока не было.<br>Откройте «Забить» и выберите стол.</div>`;
+  let out = `<h3>Заказы за смену</h3>`;
+  for (const o of feed) {
+    const label = String(o.table).startsWith("c") ? "свой стол" : "Стол " + o.table;
+    out += `<div class="ord-row"><div class="top"><b>${esc(label)}</b>` +
+      `<span class="chip ${o.status}">${ST_LABEL[o.status] || o.status}</span><span class="grow"></span>` +
+      (o.mine && o.status === "new"
+        ? `<button class="btn danger" style="flex:0 0 auto;font-size:var(--fs-sm)" data-cancel="${o.id}">Отменить</button>` : "") +
+      `</div><p class="txt">${esc(o.text || "на усмотрение кальянщика")}</p>` +
+      `<div class="meta">${esc(o.by)} · ${ago(o.ts)}` +
+      (o.takenBy ? ` · взял ${esc(o.takenBy)}` : "") +
+      (o.why ? ` · ${esc(o.why)}` : "") + `</div></div>`;
+  }
+  return out;
+}
+
+/* Ответы показываем на ЛЮБОЙ вкладке: человек написал и убрал телефон в карман,
+   ответ должен найти его сам, а не ждать, пока он вернётся на нужный экран. */
+function viewReplies() {
+  if (!replies.length) return "";
+  return replies.map((e) => `<div class="rp-row">
+    <div class="who">↩︎ ответ · ${esc(e.who)}</div>
+    <p class="txt">${esc(e.text)}</p>
+    ${e.about ? `<p class="about">на «${esc(e.about)}»</p>` : ""}
+    <button class="btn" data-rpok="${e.id}">Понятно</button>
+  </div>`).join("");
+}
+
+/* ===== шторка заказа ===== */
+const QUICK = ["покрепче", "полегче", "без никотина", "фрукты", "мята", "кислое", "сладкое", "как в прошлый раз"];
+function openSheet(t) {
+  sheet = { table: t, text: "" };
+  const busy = hookahsOf(t);
+  const mine = ordersFor(t);
+  const label = String(t).startsWith("c") ? (tables[t].label || "стол") : "Стол " + t;
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg"; bg.id = "sheetBg";
+  bg.innerHTML = `<div class="sheet">
+    <h2>${esc(label)}</h2>
+    <p class="sub">Заказ уйдёт кальянщику на планшет и в уведомления.</p>
+    ${mine.length ? `<div class="note">По этому столу уже есть заказ: <b>${esc(mine[0].text || "на усмотрение")}</b><br>
+      ${mine[0].status === "taken" ? "кальянщик взял его в работу" : "ждёт кальянщика"} · ${ago(mine[0].ts)}</div>` : ""}
+    ${busy.length ? `<div class="note">Стол занят: ${busy.length} кальян${busy.length > 1 ? "а" : ""}.
+      Новый заказ = <b>ещё один кальян</b> на стол.</div>
+      ${busy.map((h, i) => `<div class="acts" style="margin:0 0 var(--sp-2)">
+        <button class="btn" data-coals="${esc(String(t))}" data-hid="${esc(h.id)}">${isFinal(h) ? "✓ Завершить" : "🔥 Угли"}${
+          busy.length > 1 ? ` · кальян ${i + 1} (${isFinal(h) ? "финал" : "круг " + h.round}, ${mmss(leftSec(h))})` : isFinal(h) ? " · финальный круг" : ` · круг ${h.round}`}</button>
+      </div>`).join("")}
+      <div class="acts" style="margin:0 0 var(--sp-3)">
+        <button class="btn" id="shMove">⇄ Перенести стол</button>
+      </div>` : ""}
+    <textarea id="shText" maxlength="200" placeholder="что забить — например: Дабл эппл, покрепче"></textarea>
+    <div class="chips" id="shChips">
+      ${QUICK.map((q) => `<button data-add="${esc(q)}">${esc(q)}</button>`).join("")}
+      ${flavors.slice(0, 10).map((f) => `<button data-add="${esc(f)}">${esc(f)}</button>`).join("")}
+    </div>
+    <div class="acts">
+      <button class="btn" id="shCancel">Отмена</button>
+      <button class="btn primary" id="shSend">Отправить кальянщику</button>
+    </div>
+    <p class="hint" style="text-align:center;margin-bottom:0">Можно отправить и пустым — тогда кальянщик забьёт на своё усмотрение.</p>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", (e) => { if (e.target === bg) closeSheet(); });
+  $("shCancel").addEventListener("click", closeSheet);
+  $("shSend").addEventListener("click", sendOrder);
+  if ($("shMove")) $("shMove").addEventListener("click", () => { closeSheet(); openMove(t); });
+  // «поменял угли» прямо из шторки — тот же двойной тап, что и в «Сервисе»
+  bg.addEventListener("click", (e) => {
+    const co = e.target.closest("[data-coals]");
+    if (!co) return;
+    const key = String(co.dataset.coals).match(/^\d+$/) ? +co.dataset.coals : co.dataset.coals;
+    if (isArmed(key, co.dataset.hid)) { closeSheet(); coals(key, co.dataset.hid); return; }
+    coals(key, co.dataset.hid);
+    // ⚠️ подпись рисуем ИЗ состояния и откатываем по таймеру: раньше она ставилась
+    // руками и не сбрасывалась — через 2,5 с кнопка продолжала говорить «ещё раз ✓»,
+    // а тап по ней снова только взводил. Официант жал, и ничего не происходило.
+    const was = co.textContent;
+    co.textContent = "ещё раз ✓";
+    setTimeout(() => { if (!isArmed(key, co.dataset.hid) && co.isConnected) co.textContent = was; }, ARM_MS + 80);
+  });
+  $("shChips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-add]");
+    if (!b) return;
+    const ta = $("shText");
+    const cur = ta.value.trim();
+    const add = b.dataset.add;
+    ta.value = cur ? (cur.endsWith(",") ? cur + " " + add : cur + ", " + add) : add;
+    b.classList.add("on");
+    ta.focus();
+  });
+  setTimeout(() => { const ta = $("shText"); if (ta) ta.focus(); }, 60);
+}
+function closeSheet() {
+  const bg = $("sheetBg");
+  if (bg) bg.remove();
+  sheet = null;
+}
+async function sendOrder() {
+  if (!sheet) return;
+  const btn = $("shSend");
+  const text = ($("shText").value || "").trim();
+  btn.disabled = true; btn.textContent = "отправляю…";
+  try {
+    const d = await post("/api/order", { table: sheet.table, text });
+    if (!d.ok) throw new Error(d.error || "не отправилось");
+    closeSheet();
+    toast(d.repeated ? "Такой заказ уже отправлен" :
+      d.pushTo ? "Заказ ушёл · уведомлений: " + d.pushTo : "Заказ на планшете");
+    poll(); loadFeed();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Отправить кальянщику";
+    toast(String(e.message || e) === "401" ? "Войдите заново" : "Не отправилось — проверьте связь");
+  }
+}
+
+/* ===== Пока палец на экране — список не пересобираем =====
+   `main` перерисовывается раз в секунду (тикают таймеры), и подстановка innerHTML
+   выдёргивает узел из-под пальца: на iOS тап после этого не доезжает вообще.
+   Ровно эта болезнь стоила на пульте «жмём крестик — ничего не происходит», и там
+   она вылечена `gridHold`. Здесь она бьёт по «поменял угли» — единственному
+   действию официанта с подтверждением: первый тап меняет разметку кнопки, и второй
+   уходит в мёртвый узел. Держим паузу от касания и ещё полсекунды после. */
+let mainHold = 0;
+const holdMain = (ms) => { mainHold = Math.max(mainHold, Date.now() + ms); };
+const mainBusy = () => Date.now() < mainHold;
+for (const ev of ["pointerdown", "touchstart"]) $("main").addEventListener(ev, () => holdMain(1200), { passive: true });
+for (const ev of ["pointerup", "touchend", "touchcancel"]) $("main").addEventListener(ev, () => holdMain(500), { passive: true });
+
+/* ===== отметка сервиса: круг двигаем ТОЛЬКО двойным тапом =====
+   Телефон лежит в кармане и ловит случайные касания, а лишний круг у гостя —
+   это сбитый таймер и враньё в статистике. Первый тап взводит на 2,5 секунды. */
+const ARM_MS = 2500;
+const ARM_FIN_MS = 3000;                     // закрытие — действие с последствиями, ждём чуть дольше
+let arm = { key: "", until: 0 };
+const isArmed = (k, hid) => arm.key === String(k) + "|" + hid && Date.now() < arm.until;
+/* ключ запроса: сервер помнит его 5 минут и на повтор отвечает тем же, ничего
+   не делая второй раз — потерянный ОТВЕТ не должен закрывать стол дважды */
+const newOpId = () => "o" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+async function coals(k, hid) {
+  const list = hookahsOf(k);
+  const h = (hid && list.find((x) => x.id === hid)) || list[0];
+  const fin = isFinal(h);
+  if (!isArmed(k, hid)) {
+    const wait = fin ? ARM_FIN_MS : ARM_MS;
+    arm = { key: String(k) + "|" + hid, until: Date.now() + wait };
+    mainHold = 0; draw();                    // взвод показываем сразу, пауза тут ни при чём
+    setTimeout(() => { if (Date.now() >= arm.until) { arm = { key: "", until: 0 }; mainHold = 0; draw(); } }, wait + 60);
+    if (navigator.vibrate) navigator.vibrate(20);
+    return;
+  }
+  arm = { key: "", until: 0 };
+  const t = tables[k] || {};
+  const wasLast = list.length <= 1;
+  const label = String(k).startsWith("c") ? "«" + (t.label || "стол") + "»" : "Стол " + k;
+  try {
+    /* На финальном круге второе нажатие ЗАВЕРШАЕТ кальян: с ним уходит то, что
+       официант видел на экране (посадка и ревизия стола) — если стол за эти
+       секунды изменили с планшета, сервер закрытие не применит. */
+    const d = fin
+      ? await post("/api/table", { action: "finish", n: k, hid: h.id, opId: newOpId(),
+          expectedSid: t.sid || "", expectedRevision: typeof t.rev === "number" ? t.rev : null })
+      : await post("/api/table", { action: "tap", n: k, hid, opId: newOpId() });
+    if (!d.ok) throw new Error(d.error || "не получилось");
+    if (d.tables) tables = d.tables;
+    if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
+    if (fin && !d.repeated) {
+      const closed = "closed" in d ? d.closed : wasLast;
+      const leftHk = typeof d.left === "number" ? d.left : Math.max(0, list.length - 1);
+      offerUndo(closed ? label + " закрыт" : "Кальян завершён · " + label + (leftHk ? " · ещё " + leftHk + " в работе" : ""));
+    } else if (!fin) toast("Круг обновлён — на планшете видно");
+    mainHold = 0; draw(); poll();
+  } catch (e) {
+    const msg = String(e.message || e);
+    toast(msg === "401" ? "Войдите заново" : msg === "не получилось" ? "Не отметилось — проверьте связь" : msg);
+    poll(); draw();
+  }
+}
+
+/* ===== «Стол 12 закрыт · Отменить» =====
+   Откат зовёт /api/undo — тот же стек, что и кнопка ↩︎ на планшете: вернётся и
+   стол, и запись из архива, чтобы посадка не посчиталась дважды. */
+const UNDO_BAR_MS = 45000;
+let undoBarT = 0;
+const hideUndoBar = () => { $("undoBar").classList.add("hidden"); clearTimeout(undoBarT); };
+function offerUndo(text) {
+  $("undoBarText").textContent = text;
+  $("undoBar").classList.remove("hidden");
+  clearTimeout(undoBarT); undoBarT = setTimeout(hideUndoBar, UNDO_BAR_MS);
+}
+$("undoBar").addEventListener("click", async (e) => {
+  if (!e.target.closest("#undoBarBtn")) return;
+  try {
+    const d = await post("/api/undo", {});
+    if (!d.ok) { toast(d.error || "Отменить не вышло"); return; }
+    if (d.tables) tables = d.tables;
+    hideUndoBar();
+    toast("↩︎ отменено" + (d.undone ? ": " + d.undone : ""));
+    draw(); poll();
+  } catch { toast("Отменить не вышло — проверьте связь"); }
+});
+
+/* ===== перенос стола ===== */
+function openMove(from) {
+  const busy = new Set(Object.keys(tables).map(String));
+  const free = [];
+  for (let i = 1; i <= cfg.tables; i++) if (!busy.has(String(i))) free.push(i);
+  const label = String(from).startsWith("c") ? (tables[from].label || "стол") : "Стол " + from;
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg"; bg.id = "moveBg";
+  bg.innerHTML = `<div class="sheet">
+    <h2>${esc(label)} → куда?</h2>
+    <p class="sub">Таймеры и забивка переедут как есть, круг не сбросится.</p>
+    ${free.length ? `<div class="chips" id="mvList">${
+      free.map((n) => `<button data-mv="${n}">${n}</button>`).join("")}</div>`
+      : `<div class="note">Свободных столов нет.</div>`}
+    <div class="acts"><button class="btn" id="mvCancel">Отмена</button></div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); });
+  $("mvCancel").addEventListener("click", () => bg.remove());
+  const list = $("mvList");
+  if (list) list.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-mv]");
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const d = await post("/api/table", { action: "move", n: from, to: +b.dataset.mv });
+      if (!d.ok) throw new Error(d.error || "не получилось");
+      if (d.tables) tables = d.tables;
+      bg.remove();
+      toast(`Переехали на стол ${b.dataset.mv} — на планшете видно`);
+      draw(); poll();
+    } catch (e) {
+      b.disabled = false;
+      toast(String(e.message || e) === "401" ? "Войдите заново" : "Перенос не прошёл");
+    }
+  });
+}
+
+/* ===== события ===== */
+$("main").addEventListener("click", (e) => {
+  const co = e.target.closest("[data-coals]");
+  if (co) { coals(String(co.dataset.coals).match(/^\d+$/) ? +co.dataset.coals : co.dataset.coals, co.dataset.hid); return; }
+  const ok = e.target.closest("[data-rpok]");
+  if (ok) {
+    rpDone.add(ok.dataset.rpok); saveRpDone();
+    replies = replies.filter((x) => x.id !== ok.dataset.rpok);
+    draw();
+    return;
+  }
+  const t = e.target.closest("[data-t]");
+  if (t) { openSheet(String(t.dataset.t).match(/^\d+$/) ? +t.dataset.t : t.dataset.t); return; }
+  const c = e.target.closest("[data-cancel]");
+  if (c) {
+    c.disabled = true;
+    post("/api/order/act", { id: c.dataset.cancel, act: "cancel" })
+      .then(() => { toast("Заказ отменён"); poll(); loadFeed(); })
+      .catch(() => { c.disabled = false; toast("Не получилось"); });
+  }
+});
+document.querySelector("nav").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab]");
+  if (!b) return;
+  tab = b.dataset.tab;
+  if (tab === "feed") loadFeed();
+  draw();
+});
+$("outBtn").addEventListener("click", () => {
+  if (confirm("Выйти? В следующий раз нужно будет ввести ПИН.")) logout("");
+});
+
+/* ===== записка на главный планшет =====
+   Ложится в ту же ленту событий, что и перенос стола: мастер гасит её кнопкой
+   «Принял», поэтому записка не исчезнет непрочитанной. */
+$("msgBtn").addEventListener("click", () => {
+  const bg = document.createElement("div");
+  bg.className = "sheet-bg"; bg.id = "msgBg";
+  bg.innerHTML = `<div class="sheet">
+    <h2>Написать на планшет</h2>
+    <p class="sub">Появится строкой у кальянщика, пока он не нажмёт «Принял».</p>
+    <textarea id="msgText" maxlength="200" placeholder="например: на 12-м просят угли пораньше"></textarea>
+    <div class="chips" id="msgChips">
+      ${["нужен лёд", "закончился уголь", "гость просит крепче", "подойди на бар", "стол ушёл"]
+        .map((q) => `<button data-add="${esc(q)}">${esc(q)}</button>`).join("")}
+    </div>
+    <div class="acts">
+      <button class="btn" id="msgCancel">Отмена</button>
+      <button class="btn primary" id="msgSend">Отправить</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); });
+  $("msgCancel").addEventListener("click", () => bg.remove());
+  $("msgChips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-add]");
+    if (!b) return;
+    const ta = $("msgText"), cur = ta.value.trim();
+    ta.value = cur ? cur + ", " + b.dataset.add : b.dataset.add;
+    ta.focus();
+  });
+  $("msgSend").addEventListener("click", async () => {
+    const text = ($("msgText").value || "").trim();
+    if (!text) { toast("Напишите, что передать"); return; }
+    const btn = $("msgSend");
+    btn.disabled = true; btn.textContent = "отправляю…";
+    try {
+      const d = await post("/api/say", { text });
+      if (!d.ok) throw new Error(d.error || "не отправилось");
+      bg.remove();
+      toast("Передал на планшет");
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Отправить";
+      toast("Не отправилось — проверьте связь");
+    }
+  });
+  setTimeout(() => { const t = $("msgText"); if (t) t.focus(); }, 60);
+});
+
+/* ===== уведомления ===== */
+let pushSub = null;
+async function pushInit() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) { $("bellBtn").classList.add("hidden"); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    pushSub = await reg.pushManager.getSubscription();
+    drawBell();
+  } catch {}
+}
+function drawBell() {
+  $("bellBtn").textContent = pushSub ? "🔔" : "🔕";
+  $("bellBtn").classList.toggle("on", !!pushSub);
+}
+$("bellBtn").addEventListener("click", async () => {
+  try {
+    if (pushSub) {
+      await post("/api/push/off", { endpoint: pushSub.endpoint });
+      await pushSub.unsubscribe();
+      pushSub = null; drawBell(); toast("Уведомления выключены");
+      return;
+    }
+    if ((await Notification.requestPermission()) !== "granted") { toast("Уведомления запрещены в настройках телефона"); return; }
+    const key = await (await fetch("/api/push/vapid")).json();
+    if (!key.publicKey) { toast("Уведомления на сервере не настроены"); return; }
+    const reg = await navigator.serviceWorker.ready;
+    pushSub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(key.publicKey) });
+    await post("/api/push/subscribe", { sub: pushSub.toJSON(), ua: navigator.userAgent });
+    drawBell(); toast("Уведомления включены");
+  } catch (e) { toast("Не получилось включить уведомления"); }
+});
+function b64(s) {
+  const pad = "=".repeat((4 - (s.length % 4)) % 4);
+  const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+/* ===== вход по ПИНу ===== */
+function drawPin() {
+  $("pinDots").innerHTML = Array.from({ length: Math.max(4, pin.length) },
+    (_, i) => `<i class="${i < pin.length ? "f" : ""}"></i>`).join("");
+}
+$("pinPad").innerHTML =
+  [1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `<button data-d="${d}">${d}</button>`).join("") +
+  `<button data-d="c">←</button><button data-d="0">0</button><button data-d="ok">✓</button>`;
+$("pinPad").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-d]");
+  if (!b) return;
+  const d = b.dataset.d;
+  if (d === "c") pin = pin.slice(0, -1);
+  else if (d === "ok") return tryLogin();
+  else if (pin.length < 12) pin += d;
+  drawPin();
+  if (pin.length >= 9) tryLogin();          // длинный ПИН админа — не заставляем жать ✓
+});
+async function tryLogin() {
+  if (pin.length < 4) return;
+  $("pinErr").textContent = "";
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }) });
+    const d = await r.json();
+    if (!d.ok) { $("pinErr").textContent = d.error || "ПИН не подошёл"; pin = ""; drawPin(); return; }
+    localStorage.setItem(LS_KEY, d.token);
+    me = { name: d.name, role: d.role };
+    localStorage.setItem(LS_ME, JSON.stringify(me));
+    pin = ""; drawPin();
+    $("pinBox").classList.add("hidden");
+    await shiftOn();
+    poll(); loadFeed(); pushInit();
+  } catch {
+    $("pinErr").textContent = "Нет связи с сервером";
+  }
+}
+function logout(msg) {
+  localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_ME);
+  me = null; tables = {}; orders = []; feed = [];
+  $("pinBox").classList.remove("hidden");
+  $("pinErr").textContent = msg || "";
+}
+
+/* ===== старт ===== */
+fetch("/api/config").then((r) => r.json()).then((d) => {
+  if (d && d.ok) { cfg = { venue: d.venue || cfg.venue, tables: d.tables || cfg.tables }; if (d.view) view = { ...view, ...d.view }; }
+  draw();
+}).catch(() => {});
+
+if (getKey()) { $("pinBox").classList.add("hidden"); poll(); loadFeed(); pushInit(); }
+else drawPin();
+
+draw();
+setInterval(() => { if (getKey() && !document.hidden) poll(); }, 5000);
+setInterval(() => { if (!document.hidden && (tab === "service" || tab === "order")) draw(); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && getKey()) { poll(); if (tab === "feed") loadFeed(); } });
+
+if ("serviceWorker" in navigator)
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    setInterval(() => reg.update(), 10 * 60 * 1000);
+    navigator.serviceWorker.addEventListener("controllerchange", () => location.reload());
+  }).catch(() => {});
+</script>
+</body>
+</html>

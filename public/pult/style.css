@@ -1,0 +1,1699 @@
+/* ==========================================================================
+   Пульт кальянщика «Серп»
+   Рабочий инструмент для планшета в полумраке зала: смотрят издалека,
+   жмут пальцем, на экране всегда все столы. Отсюда единая шкала размеров —
+   любой шрифт, отступ и кнопка берутся отсюда, а не задаются на месте.
+   ========================================================================== */
+
+:root {
+  /* палитра */
+  --bg: #15100c;
+  --bg2: #1e1611;
+  --card: #241a13;
+  --line: #3a2c20;
+  --txt: #f3e9df;
+  --muted: #a08b78;
+  --dim: #6b5848;
+  --ember: #ff7a18;
+  --ember2: #ffb347;
+  --ok: #4cc9a0;
+  --danger: #ff4d4d;
+
+  /* типографика: пять размеров, больше не нужно */
+  --fs-timer: clamp(20px, 4.6vh, 40px);    /* обратный отсчёт — главный элемент */
+  --fs-timer-sm: clamp(15px, 2.8vh, 22px); /* он же, когда кальянов на столе несколько */
+  --fs-xl: clamp(15px, 2.3vh, 21px);       /* номер стола, заголовки окон */
+  --fs-lg: 16px;                           /* кнопки, поля ввода */
+  --fs-md: 14px;                           /* основной текст */
+  --fs-sm: 12px;                           /* подписи под таймером */
+  --fs-xs: 11px;                           /* метки, время в журнале */
+
+  /* отступы */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 22px;
+
+  /* скругления и размер зоны нажатия */
+  --r-sm: 10px; --r-md: 14px; --r-lg: 20px; --r-pill: 999px;
+  /* 44 — минимум Apple HIG и Material. Было 40, а по факту кнопки
+     на плитке отрисовывались в 28: промахнуться в полутьме было легко. */
+  --tap: 44px;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html { height: 100%; }
+
+/* В установленном приложении (PWA) нет адресной строки, и 100dvh на части
+   устройств выше видимой области — низ сетки уезжает за экран. Прибиваем к окну. */
+body {
+  margin: 0;
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;   /* inset: 0 старый Safari не понимает */
+  inset: 0;
+  height: 100%; width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: radial-gradient(1200px 600px at 50% -10%, #2a1d12 0%, transparent 60%), var(--bg);
+  color: var(--txt);
+  font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: var(--fs-md);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+/* --------------------------------------------------------------- шапка -- */
+
+.topbar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: nowrap; gap: var(--sp-2);
+  padding: calc(var(--sp-3) + var(--safe-t)) var(--sp-4) var(--sp-3);
+  /* учитываем «уши» экрана — иначе крайняя кнопка уходит под рамку */
+  padding-left: calc(var(--sp-4) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--sp-4) + env(safe-area-inset-right, 0px));
+  background: linear-gradient(180deg, rgba(21,16,12,.96), rgba(21,16,12,.78));
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.brand h1 {
+  margin: 0; font-size: var(--fs-xl); font-weight: 700; letter-spacing: .2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.brand .dot {
+  width: 11px; height: 11px; flex: 0 0 auto; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--ember2), var(--ember));
+  box-shadow: 0 0 12px 2px rgba(255,122,24,.6);
+}
+.conn { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+.conn.ok { color: var(--ok); }
+.conn.bad { color: var(--danger); }
+
+/* погода на точке — полоской под шапкой */
+.wx-bar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg2); border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--txt);
+}
+.wx-bar.has-warn { border-bottom-color: rgba(255,159,67,.45); }
+.wx-bar .wx-now { font-weight: 700; white-space: nowrap; }
+.wx-bar .wx-feels, .wx-bar .wx-wind, .wx-bar .wx-ok { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.wx-bar .wx-warn {
+  color: #14100b; background: var(--ember2); padding: 3px 12px; border-radius: 999px;
+  font-weight: 700; white-space: nowrap;
+}
+.wx-bar .wx-warn.rain { background: #6db3ff; }
+body.light .wx-bar { background: #efe8df; }
+
+/* кнопки всегда одной строкой: сжимается название, а не панель */
+.top-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--sp-2); flex-wrap: nowrap;
+  /* Ряд обязан ужиматься: у администратора кнопок 8, а не 6, и на узком
+     экране крайняя (⚙️) уезжала за правый край и становилась недоступной. */
+  flex: 0 1 auto; min-width: 0;
+}
+.icon-btn, .shift-btn {
+  height: var(--tap); border-radius: var(--r-md); cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--txt);
+  display: inline-grid; place-items: center;
+  transition: transform .08s, border-color .2s, color .2s;
+}
+.icon-btn { width: var(--tap); font-size: 18px; }
+.icon-btn:active, .shift-btn:active { transform: scale(.93); }
+.icon-btn.off { opacity: .4; }
+.shift-btn {
+  padding: 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 700;
+  color: var(--muted); white-space: nowrap; font-family: inherit;
+  /* Ужимается именно она: лучше обрезать «Администратор» многоточием,
+     чем вытолкнуть иконки за экран. */
+  flex: 0 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+}
+.shift-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Иконки шапки: один штрих, цвет наследуется от кнопки — поэтому они
+   сами меняются вместе с темой, а не остаются цветным пятном. */
+.ic {
+  width: 20px; height: 20px; display: block; flex: 0 0 auto;
+  fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+  pointer-events: none;   /* тап всегда достаётся кнопке, а не значку */
+}
+/* мелкий вариант — внутри строки текста: чип забивки, кнопка этапа, «пора к столу» */
+.ic-s {
+  width: 14px; height: 14px;
+  display: inline-block; vertical-align: -2px;
+  stroke-width: 2.1;      /* на мелком размере тонкий штрих пропадает */
+}
+/* в кнопках шапки плитки значок чуть меньше самой кнопки */
+.tl-add .ic, .tl-x .ic, .tl-mv .ic { width: 20px; height: 20px; }
+.shift-btn.on { border-color: var(--ok); color: var(--ok); }
+
+/* ------------------------------------------------- сервисный режим ------ */
+
+.svc-banner {
+  flex: 0 0 auto; text-align: center;
+  padding: var(--sp-2) var(--sp-4);
+  background: repeating-linear-gradient(45deg,
+    rgba(255,159,67,.20) 0 12px, rgba(255,159,67,.09) 12px 24px);
+  border-bottom: 1px solid rgba(255,159,67,.45);
+  color: var(--ember2); font-size: var(--fs-sm); font-weight: 700;
+}
+
+/* ------------------------------------------------------- вызовы гостей -- */
+
+.calls-bar {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) 0;
+  max-height: 32vh; max-height: 32dvh; overflow-y: auto;
+}
+.call-chip {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--danger); border-radius: var(--r-md);
+  background: linear-gradient(135deg, #3a1710, var(--card));
+  animation: callPulse 1.2s ease-in-out infinite;
+}
+.call-chip.acked { border-color: var(--ok); animation: none; }
+@keyframes callPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
+  50%      { box-shadow: 0 0 0 5px rgba(255,77,77,.4); }
+}
+.call-chip .c-ico { font-size: 22px; flex: 0 0 auto; }
+.call-chip .c-body { flex: 1; min-width: 0; }
+.call-chip .c-table { font-size: var(--fs-lg); font-weight: 800; }
+.call-chip .c-kind { font-size: var(--fs-md); color: var(--ember2); }
+.call-chip .c-comment { font-size: var(--fs-md); margin-top: 2px; word-break: break-word; }
+.call-chip .c-age { font-size: var(--fs-sm); color: var(--muted); font-weight: 600; white-space: nowrap; }
+.call-chip .c-dev { font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
+
+/* ------------------------------------------- заказы забивки от официантов -
+   Не тревога, а очередь работы, поэтому: янтарь вместо красного, без пульсации
+   и ГОРИЗОНТАЛЬНОЙ лентой. Вертикальный список вызовов на 40 столах съедал
+   треть экрана, и плитки схлопывались в нечитаемые 91px — здесь высота
+   ограничена жёстко, лишние заказы уезжают вбок. */
+.orders-bar {
+  flex: 0 0 auto;
+  display: flex; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4) 0;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.orders-bar::-webkit-scrollbar { display: none; }
+.ord-chip {
+  flex: 0 0 auto; width: 340px; max-width: 82vw;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--ember); border-radius: var(--r-md);
+  background: linear-gradient(135deg, #3a2410, var(--card));
+}
+/* «взял, но ещё не начал» — приглушаем, но не прячем: работа не сделана */
+.ord-chip.taken { border-color: var(--ember2); border-style: dashed; }
+.ord-chip .o-ico { font-size: 18px; }
+.ord-chip .o-body { min-width: 0; }
+.ord-chip .o-top {
+  font-size: var(--fs-md); font-weight: 800;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ord-chip .o-top span { font-size: var(--fs-xs); color: var(--muted); font-weight: 600; }
+/* Заказ читают ЦЕЛИКОМ и один раз — обрезать его многоточием нельзя:
+   мастер уйдёт к столу с половиной пожелания гостя. Поэтому переносим по словам. */
+.ord-chip .o-txt {
+  margin: 3px 0;
+  font-size: var(--fs-lg); font-weight: 600; color: var(--ember2);
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.35;
+}
+.ord-chip .o-by { font-size: var(--fs-xs); color: var(--muted); }
+.ord-chip .o-acts { display: flex; gap: var(--sp-2); align-items: stretch; }
+.ord-chip .o-acts .btn { flex: 1 1 auto; }
+.ord-chip .o-acts .spam-btn { flex: 0 0 auto; }
+
+/* ---------------------------------------------- события с других устройств -
+   Кальянщик перенёс стол или отметил угли с телефона — планшет должен об этом
+   сказать, а не молча перерисовать плитку. Строка живёт 25 секунд и уходит:
+   это уведомление, а не список дел, копиться ему незачем. */
+.events-bar {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-4) 0;
+}
+/* Две строки: «что случилось + действие», под ними «кто и когда».
+   Раньше всё лежало в одной flex-строке, и текст зажимался в узкую колонку
+   между автором и кнопкой — переносился по слову на строку. */
+.ev-chip {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid rgba(76,201,160,.45); border-radius: var(--r-md);
+  background: linear-gradient(135deg, #16302a, var(--card));
+  animation: evIn .25s ease-out;
+}
+@keyframes evIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.ev-chip .e-r1 { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--tap); }
+.ev-chip .e-ico { font-size: 18px; flex: 0 0 auto; }
+.ev-chip .e-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-lg); font-weight: 700;
+  overflow-wrap: anywhere;              /* длинная записка переносится, но по всей ширине */
+}
+.ev-chip .e-r2 { font-size: var(--fs-sm); color: var(--muted); padding-left: calc(18px + var(--sp-2)); }
+/* Строку гасит только человек, поэтому кнопка полноразмерная и подписана
+   действием: «Принять» читается как ответственность, ✕ читается как «убрать глазами». */
+.ev-chip .e-ok, .ev-chip .e-rp { flex: 0 0 auto; min-height: var(--tap); padding: 0 var(--sp-3); }
+/* принятый вызов: спокойный, без акцента и кнопок — просто отметка, что за ним уже пошли */
+.ev-chip.acked { border-color: rgba(76,201,160,.22); background: var(--card); animation: none; }
+.ev-chip.acked .e-r1 { min-height: 0; }
+.ev-chip .e-done {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-md); font-weight: 700; color: var(--ok);
+}
+/* «Принять все» — не отдельная висящая кнопка, а строка-подвал ленты:
+   слева счётчик, справа действие. Исчезает, когда новых меньше двух. */
+.events-bar .e-allbar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-sm); color: var(--muted);
+}
+.events-bar .e-all { min-height: var(--tap); padding: 0 var(--sp-3); }
+/* уведомления копятся, пока их не разобрали — но зал они закрывать не должны */
+.events-bar { max-height: 34vh; max-height: 34dvh; overflow-y: auto; }
+
+/* Подсказка «горит вне экрана»: только она и оправдывает прокрутку зала. */
+.offscreen {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--sp-4) + var(--safe-b)); z-index: 20;
+  padding: 10px 18px; min-height: var(--tap);
+  border: 1px solid var(--danger); border-radius: var(--r-pill);
+  background: #3a1710; color: var(--txt);
+  font-family: inherit; font-size: var(--fs-lg); font-weight: 700;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  animation: callPulse 1.2s ease-in-out infinite;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------- сетка столов - */
+
+/* Сетка ПРОКРУЧИВАЕТСЯ. На 40 столах втиснуть весь зал в экран можно только
+   ценой нечитаемой плитки (строка 88px, таймер схлопывается в ноль), поэтому
+   плитке задан минимум (см. layoutGrid), а лишние ряды уезжают вниз.
+   Прокрутка безопасна: renderGrid заменяет плитки ПОШТУЧНО, а не пересобирает
+   контейнер — иначе на iOS список подбрасывало бы наверх при каждом тике. */
+.tiles {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: grid; gap: var(--sp-2);
+  align-content: start;
+  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + var(--safe-b));
+}
+
+.tile {
+  position: relative; overflow: hidden;
+  /* контейнер запросов: видимость мелочей решается шириной ПЛИТКИ.
+     По ширине экрана это не работало — в альбомной ориентации экран широкий,
+     а плитка узкая, и «прогрев m:ss» выдавливал кнопку этапа за край. */
+  container-type: inline-size;
+  display: flex; flex-direction: column;
+  min-height: 0; min-width: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: linear-gradient(165deg, var(--card), var(--bg2));
+  cursor: pointer;
+  /* background в переходе — чтобы цветная шкала (body.paint) перетекала
+     между состояниями, а не переключалась ступенькой */
+  transition: border-color .6s, background .6s, opacity .3s, transform .08s;
+}
+.tile:active { transform: scale(.985); }
+/* ⚠️ Свободная плитка гасилась ЦЕЛИКОМ через `opacity: .45`, и номер стола вместе
+   с ней: замер по пикселям дал контраст 2.11:1 при норме 4.5 — через зал не прочитать.
+   Прозрачность убрана, приглушение задаётся явно: тусклый фон и тусклая подпись,
+   а НОМЕР остаётся читаемым — его как раз и ищут взглядом. */
+.tile.idle {
+  background: linear-gradient(165deg, #1d1610, #191309);
+  border-color: rgba(58, 44, 32, .6);
+}
+.tile.idle .tl-state { color: var(--dim); }
+.tile.active { border-color: rgba(76,201,160,.4); }
+.tile.called { border-color: var(--danger); }
+.tile.alarm {
+  border-color: var(--danger);
+  animation: alarmPulse 1.1s ease-in-out infinite;
+}
+@keyframes alarmPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
+  50%      { box-shadow: 0 0 0 4px rgba(255,77,77,.45); }
+}
+
+/* Стол ожил: короткий подъём вместо мгновенной подмены.
+   Класс вешает JS только тем плиткам, что реально стали активными
+   (в CSS это делать нельзя — сетка пересобирается целиком, мигнул бы весь зал). */
+.tile.is-new { animation: tileIn .3s cubic-bezier(.2, .8, .3, 1); }
+@keyframes tileIn {
+  from { opacity: 0; transform: scale(.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Этап отмечен: зелёная волна от края плитки.
+   Нужна не для красоты — в полутьме зала это единственное подтверждение,
+   что тап по «прогрет»/«отдал» засчитан, а не промазал. */
+.tile.stage-ok { animation: stageOk .55s ease-out; }
+@keyframes stageOk {
+  from { box-shadow: 0 0 0 0 rgba(76,201,160,.55); }
+  to   { box-shadow: 0 0 0 12px rgba(76,201,160,0); }
+}
+
+/* шапка плитки: номер и две кнопки одного размера */
+.tl-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.tl-num { font-size: var(--fs-xl); font-weight: 800; line-height: 1.2; }
+/* чуть светлее общего --muted (~10%): по номеру ищут, куда посадить гостей,
+   фон и рамку при этом не усиливаем — свободный стол остаётся «тихим» */
+.tile.idle .tl-num { color: #b39e8a; }
+/* В светлой теме приглушённый номер давал 2.51:1 на кремовом фоне — берём чернила
+   потемнее. Номер свободного стола обязан читаться: по нему ищут, куда посадить. */
+body.light .tile.idle .tl-num { color: #5f5346; }
+/* Настройка «белые номера свободных столов» (⚙️, общая для всех пультов).
+   Только тёмная тема и только СВОБОДНЫЕ плитки: у занятых номер тёмный на цветной
+   заливке, и белым он там стал бы нечитаемым. */
+body.whitenum:not(.light) .tile.idle .tl-num { color: #ffffff; }
+/* Занятые столы — тоже белым (просьба Андрея).
+   ⚠️ Белое на заливке круга само по себе даёт слабый контраст: на зелёном ≈2,0,
+   на красном ≈3,1 при норме 4,5. Поэтому цифра идёт с мягкой тёмной тенью —
+   она держит края глифа на любой заливке. Тень только у НОМЕРА: таймер остаётся
+   тёмным на цветном, он крупный и в тени не нуждается. */
+body.whitenum:not(.light) .tile.active[class*="rd"] .tl-num {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 0 6px rgba(0, 0, 0, .35);
+}
+.tl-tools { display: flex; gap: var(--sp-2); flex: 0 0 auto; }
+.tl-add, .tl-x, .tl-mv {
+  min-width: var(--tap); height: var(--tap); padding: 0 var(--sp-2);
+  border-radius: var(--r-sm); cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255,255,255,.05);
+  color: var(--muted); font-size: var(--fs-lg); font-weight: 700; line-height: 1;
+  display: grid; place-items: center; font-family: inherit;
+  transition: transform .08s, background .2s, color .2s;
+}
+.tl-add { background: rgba(255,122,24,.14); color: var(--ember2); }
+.tl-add:active, .tl-x:active, .tl-mv:active { transform: scale(.9); }
+/* Разрушающее действие отодвинуто: раньше «✕ закрыть» стояло в 3px от
+   «+ добавить», обе по 28px — промах закрывал стол с гостями. */
+.tl-x { margin-left: var(--sp-2); }
+/* «i» — вход в разбор стола.
+   ⚠️ Была буквой «i» цветом --muted и на залитой плитке (оранжевой, зелёной)
+   сливалась с фоном до нечитаемости. Теперь контурный значок цветом текста
+   и с более светлой подложкой: на любой заливке видно, что это кнопка. */
+.tl-i {
+  min-width: var(--tap); height: var(--tap); padding: 0;
+  border-radius: var(--r-sm); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.34); background: rgba(255,255,255,.16);
+  color: var(--txt); font-family: inherit;
+  display: grid; place-items: center;
+}
+.tl-i .ic { stroke-width: 2.2; }
+.tl-i:active { transform: scale(.9); }
+/* на светлой теме белая подложка не читается — берём чернила */
+body.light .tl-i { border-color: rgba(36,26,19,.3); background: rgba(36,26,19,.1); }
+
+/* ------------------------------------- история сообщений за смену --------- */
+.icon-btn { position: relative; }
+.hist-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px;
+  border-radius: var(--r-pill); background: var(--danger); color: #fff;
+  font-size: 11px; font-weight: 800; line-height: 18px; padding: 0 5px;
+  pointer-events: none;
+}
+.hist-row {
+  border: 1px solid var(--line); border-left-width: 4px; border-left-color: var(--ok);
+  border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-2);
+  text-align: left;
+}
+.hist-row.done { border-left-color: var(--line); opacity: .72; }
+.hist-row .h-top { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.hist-row .h-ico { font-size: 16px; }
+.hist-row .h-kind { font-size: var(--fs-sm); color: var(--muted); }
+.hist-row .h-age { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.hist-row .h-txt { margin: 5px 0 0; font-size: var(--fs-lg); }
+.hist-row .h-about { margin: 3px 0 0; font-size: var(--fs-xs); color: var(--muted); }
+.hist-row .btn { margin-top: var(--sp-2); min-height: var(--tap); }
+#histBody { max-height: 56dvh; overflow-y: auto; }
+
+/* ------------------------------------------- окно «i»: кальяны стола ------ */
+.inf-row {
+  border: 1px solid var(--line); border-left-width: 4px; border-left-color: var(--ok);
+  border-radius: var(--r-md); background: var(--sunk, rgba(255,255,255,.03));
+  padding: var(--sp-3); margin-bottom: var(--sp-2); text-align: left;
+}
+.inf-row.over { border-left-color: var(--danger); background: rgba(255,77,77,.08); }
+.inf-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+.inf-head b { flex: 1 1 auto; font-size: var(--fs-xl); }
+.inf-clock { font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 800; }
+.inf-clock.over { color: var(--danger); }
+.inf-meta { font-size: var(--fs-md); color: var(--muted); margin-top: 3px; }
+.inf-acts { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+.inf-acts .btn { flex: 1 1 auto; min-height: var(--tap); }
+.inf-acts .btn.danger { flex: 0 0 auto; color: var(--danger); }
+.inf-acts .bd-stage { flex: 1 1 auto; min-height: var(--tap); font-size: var(--fs-lg); }
+.tl-x.arm { background: var(--danger); border-color: var(--danger); color: #fff; font-size: var(--fs-sm); }
+/* ================== ШАПКА ПЛИТКИ — РЕЗИНОВАЯ, БЕЗ ПОРОГОВ ==================
+   В шапке ТРИ кнопки: i · + · ✕ (перенос ⇄ уехал в окно «i» — редкое действие
+   уровня стола, а четвёртая кнопка не помещалась на узкой плитке телефона).
+   Четыре по 44px плюс двузначный номер
+   требуют ~230px ВНУТРИ плитки, а на iPad с 40 столами внутренняя ширина 218 —
+   крестик обрезало ровно на ширину второй цифры (у стола «1» влезало, у «22» нет).
+
+   Лечить это порогами (@container max-width: 265px и т.д.) — тупик: каждая новая
+   кнопка или другое число столов снова ломает подобранное число. Поэтому размеры
+   считаются ОТ ШИРИНЫ САМОЙ ПЛИТКИ в единицах `cqw` (1cqw = 1% ширины контейнера,
+   контейнером плитка объявлена через `container-type: inline-size`).
+   Кнопки, зазоры и номер сжимаются и растут вместе с плиткой непрерывно,
+   поэтому переполниться шапка не может НИ ПРИ КАКОЙ ширине и числе столов.
+   clamp() держит края: не мельче 36px (палец) и не крупнее 44px (норма HIG).
+   ⚠️ `cqw` считается от CONTENT-box контейнера, то есть от ширины плитки МИНУС
+   её отступы — 15cqw при плитке 242 дали 32px, а не 36. Коэффициенты подбирались
+   замером (scratchpad/fluid.py), а не на глаз. */
+.tl-head { min-width: 0; gap: clamp(3px, 2cqw, 8px); }
+.tl-num {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Номер стола — крупнее и жирнее: его ищут взглядом через зал, а не читают.
+     Растёт вместе с плиткой (cqw), потолок 34px подобран так, чтобы шапка
+     с тремя кнопками по 44px всё равно помещалась (проверено fluid.py). */
+  font-size: clamp(20px, 14cqw, 34px);
+  font-weight: 900;
+  letter-spacing: -0.5px;
+}
+.tl-tools { gap: clamp(3px, 2cqw, 8px); }
+.tl-add, .tl-x, .tl-mv, .tl-i {
+  min-width: clamp(36px, 24cqw, 44px);
+  width: clamp(36px, 24cqw, 44px);
+  height: clamp(36px, 24cqw, 44px);
+  padding: 0;
+}
+.tl-x { margin-left: clamp(3px, 2.5cqw, 8px); }
+/* значок внутри кнопки тоже от плитки — иначе на узкой он упирается в края */
+.tl-add .ic, .tl-x .ic, .tl-mv .ic, .tl-i .ic {
+  width: clamp(15px, 9cqw, 20px); height: clamp(15px, 9cqw, 20px);
+}
+.tl-x.arm { font-size: clamp(9px, 3.4cqw, 12px); }
+
+/* один кальян: таймер занимает всё свободное место */
+.tl-timer {
+  flex: 1 1 auto; display: flex; align-items: center;
+  font-size: var(--fs-timer); font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: .5px;
+  cursor: pointer;
+}
+.tl-timer.over { color: var(--danger); }
+.tl-state { margin-top: auto; font-size: var(--fs-sm); color: var(--muted); line-height: 1.3; }
+.tile.has-bd .tl-state { flex: 0 0 auto; margin-top: auto; }
+.tile.has-bd .tl-timer { min-height: 0; }
+.progress {
+  height: 4px; margin-top: var(--sp-2); border-radius: var(--r-pill);
+  background: rgba(255,255,255,.08); overflow: hidden;
+}
+.progress > i {
+  display: block; height: 100%; width: 0; background: var(--ember);
+  transition: width .9s linear;
+}
+
+/* ------------------------------------------------ забивка (конструктор) --
+   Одна строка под таймером: чем греем и какой вкус — слева, следующий шаг
+   («прогрелся» → «отдал гостю») — справа. Мелко: главным остаётся таймер. */
+.bd-line {
+  /* строго одна строка: перенос давал 49px вместо 22 и выдавливал таймер из плитки */
+  display: flex; align-items: center; gap: var(--sp-1); flex-wrap: nowrap;
+  flex: 0 0 auto; margin-top: var(--sp-1); min-width: 0;
+}
+.bd-chip {
+  /* коэффициент сжатия выше, чем у кнопки: вкус можно обрезать, действие — нет */
+  flex: 0 6 auto; min-width: 0; max-width: 100%;
+  padding: 2px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: rgba(255,255,255,.05);
+  color: var(--txt); font-family: inherit; font-size: var(--fs-sm);
+  line-height: 1.6; font-weight: 600; cursor: pointer;
+  /* text-align у кнопки по умолчанию center: длинный вкус обрезался с ОБЕИХ
+     сторон («…ника со льдом, покре»), и начало названия пропадало */
+  text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bd-chip.empty { color: var(--dim); border-style: dashed; }
+/* «прогрев m:ss» — второстепенное, ужимается первым. Без этого в альбомной
+   ориентации (экран широкий, плитка узкая) подпись выдавливала кнопку этапа
+   за край: медиазапрос ниже прячет её по ширине ЭКРАНА, а не плитки. */
+.bd-t {
+  font-size: var(--fs-xs); color: var(--muted); white-space: nowrap;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.bd-stage {
+  /* Ужимается последней и неохотно: сперва уступают чип и «прогрев».
+     Раньше было 0 0 auto — на узкой плитке кнопку просто обрезало краем. */
+  margin-left: auto; flex: 0 0 auto;
+  padding: 2px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px solid rgba(76,201,160,.5); background: rgba(76,201,160,.14);
+  color: var(--ok); font-family: inherit; font-size: var(--fs-sm);
+  line-height: 1.6; font-weight: 700; cursor: pointer; white-space: nowrap;
+  max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.bd-stage.s-served { border-color: rgba(255,122,24,.5); background: rgba(255,122,24,.16); color: var(--ember2); }
+.bd-chip:active, .bd-stage:active { transform: scale(.96); }
+/* Приём с невидимым слоем ::after здесь не работает: у обеих плашек стоит
+   overflow: hidden ради многоточия, и он обрезает расширение. Поэтому зона
+   нажатия делается честной высотой — плитка теперь вдвое шире, место есть. */
+.bd-chip, .bd-stage {
+  min-height: var(--tap);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* несколько кальянов: строки одного размера, таймер мельче общего */
+.hk-list {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  justify-content: flex-start;      /* строки идут вниз от шапки, а не наезжают на неё */
+}
+
+/* столу с несколькими кальянами — двойная ширина: строки читаются, ничего не жмётся */
+.tile.multi { grid-column: span 2; }
+
+/* три и больше кальянов — в две колонки, иначе не помещаются в плитку */
+.tile.multi.hk2 .hk-list,
+.tile.multi.hk3 .hk-list,
+.tile.multi.hk4 .hk-list,
+.tile.multi.hk5 .hk-list,
+.tile.multi.hk6 .hk-list {
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;            /* записи тянутся на всю высоту плитки… */
+  align-content: stretch;         /* …а не липнут к шапке, оставляя пустоту */
+  gap: var(--sp-1);
+}
+.tile.multi.hk2 .hk, .tile.multi.hk3 .hk, .tile.multi.hk4 .hk,
+.tile.multi.hk5 .hk, .tile.multi.hk6 .hk { padding: 2px var(--sp-1); gap: var(--sp-1); }
+.tile.multi.hk2 .hk-r, .tile.multi.hk3 .hk-r, .tile.multi.hk4 .hk-r,
+.tile.multi.hk5 .hk-r, .tile.multi.hk6 .hk-r { display: none; }
+.tile.multi .hk-t { font-size: clamp(14px, 5cqw, 24px); }
+.tile.multi.hk5 .hk-t, .tile.multi.hk6 .hk-t { font-size: clamp(12px, 3.6cqw, 18px); }
+.tile.multi .hk-list { row-gap: 2px; }
+.tile.multi .hk-t { line-height: 1.05; }
+.tile.multi { padding-bottom: var(--sp-1); }
+/* Плитка с несколькими кальянами занимает ДВА ряда сетки: иначе на строку
+   оставалось 24px и всё в ней (время, «курят», крестик) сжималось до нечитаемого.
+   Ряд сетки резиновый (minmax), поэтому лишней высоты это не создаёт. */
+.tile.multi.hk2, .tile.multi.hk3, .tile.multi.hk4,
+.tile.multi.hk5, .tile.multi.hk6 { grid-row: span 2; }
+/* …кроме ДВУХ кальянов: их записи стоят рядом в один уровень, второй ряд
+   сетки оставался пустым воздухом и рвал плотность зала. Ширины двух колонок
+   и одного ряда им хватает. */
+.tile.multi.hk2 { grid-row: auto; }
+.tile.multi.hk2 .hk-n, .tile.multi.hk3 .hk-n, .tile.multi.hk4 .hk-n,
+.tile.multi.hk5 .hk-n, .tile.multi.hk6 .hk-n { width: 18px; height: 18px; font-size: 10px; }
+/* ⚠️ Крестик РАНЬШЕ вешался абсолютом в угол записи — тогда строка была 24px и он
+   в неё не влезал. Теперь плитка занимает два ряда, строка нормальной высоты,
+   и крестик стоит В ПОТОКЕ: в углу он налезал на текст записи. */
+/* забивка в записи кальяна — своей строкой: в узкую плитку рядом не влезает */
+.hk-bd { flex: 1 0 100%; display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.hk-bd .bd-chip, .hk-bd .bd-stage { font-size: 10px; padding: 0 6px; line-height: 1.7; }
+.hk {
+  position: relative;
+  /* ⚠️ Строка кальяна — ОДНА строка (nowrap): при переносе крестик уезжал вниз
+     и запись разъезжалась. Лишнее ужимает «курят N мин» многоточием. */
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: nowrap;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: rgba(255,255,255,.05);
+  cursor: pointer; min-width: 0;
+  transition: border-color .3s, background .3s, transform .08s;
+}
+.hk:active { transform: scale(.97); }
+.hk.over { border-color: var(--danger); background: rgba(255,77,77,.12); }
+.hk-n {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: rgba(255,122,24,.2); color: var(--ember2);
+  font-size: var(--fs-xs); font-weight: 800;
+}
+.hk-t {
+  /* ⚠️ Время НЕ сжимается (flex 0 0 auto): при `1 1 auto` оно ужималось, текст
+     вылезал за свою коробку и наезжал на подпись «курят N мин».
+     Ужимается подпись — она для этого и помечена flex: 1 1 auto ниже. */
+  flex: 0 0 auto; white-space: nowrap;
+  font-size: var(--fs-timer-sm); font-weight: 800;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.hk.over .hk-t { color: var(--danger); }
+.hk-r { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+/* «курят N мин» в строке кальяна: время круга остаётся главным (flex 1 1 auto
+   у .hk-t), а эта подпись ужимается первой и не переносится на вторую строку —
+   иначе multi-плитка вырастет выше отведённого ей ряда сетки. */
+.hk-sm {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-sm); color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hk.over .hk-sm { color: var(--txt); opacity: .85; }
+/* ⚠️ Крестик «убрать кальян» был 20×20 — в него не попадали пальцем ровно так же,
+   как в ✕ стола. Размер от ширины плитки, снизу 26px. */
+.hk-x {
+  flex: 0 0 auto;
+  width: clamp(26px, 6cqw, 34px); height: clamp(26px, 6cqw, 34px); border-radius: 7px;
+  border: none; background: transparent; color: var(--muted);
+  font-size: var(--fs-sm); cursor: pointer; opacity: .55; font-family: inherit;
+}
+.hk-x:active { opacity: 1; }
+
+/* --------------------------------------------- вид «кольца» (опция) ----- */
+
+.dial { position: relative; display: flex; align-items: center; gap: var(--sp-2); min-width: 0; cursor: pointer; }
+.dial svg {
+  flex: 0 0 auto; width: 44px; height: 44px;
+  transform: rotate(-90deg); overflow: visible;
+}
+.dial.big svg { width: clamp(44px, 8.5vh, 70px); height: clamp(44px, 8.5vh, 70px); }
+.dial circle { fill: none; stroke-linecap: round; }
+.ring-bg   { stroke: rgba(255,255,255,.08); stroke-width: 7; }
+.ring-done { stroke: rgba(76,201,160,.5); stroke-width: 3; }
+.ring-fg   { stroke: var(--ember); stroke-width: 7; transition: stroke-dashoffset .9s linear; }
+.dial.over .ring-fg { stroke: var(--danger); }
+.dial-round {
+  position: absolute; left: 0; top: 0; width: 44px; height: 44px;
+  display: grid; place-items: center; pointer-events: none;
+  font-size: var(--fs-md); font-weight: 800; color: var(--ember2);
+}
+.dial.big .dial-round { width: clamp(44px, 8.5vh, 70px); height: clamp(44px, 8.5vh, 70px); font-size: var(--fs-xl); }
+.dial-t {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-timer-sm); font-weight: 800;
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.dial.big .dial-t { font-size: var(--fs-timer); }
+.dial.over .dial-t { color: var(--danger); }
+
+.tile.dialed > .dial.big { flex: 1 1 auto; }
+.hk-cell {
+  position: relative; display: flex; align-items: center; flex-wrap: wrap; row-gap: 2px;
+  padding: var(--sp-1) 28px var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: rgba(255,255,255,.05); min-width: 0;
+}
+.hk-cell .dial { flex: 1 1 auto; }
+.hk-cell .dial svg, .hk-cell .dial-round { width: 32px; height: 32px; }
+.hk-cell .dial-round { font-size: var(--fs-xs); }
+.hk-cell .hk-n { display: none; }
+.hk-cell .hk-x { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
+
+/* ------------------------------------- окно конструктора забивки -------- */
+
+.bd-fl-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin: 12px 0 6px; flex-wrap: wrap; }
+.bd-fl-tools { display: flex; gap: var(--sp-1); flex: 0 0 auto; }
+.bd-mini.rec { border-color: var(--danger); color: var(--danger); }
+.bd-mini {
+  padding: 2px var(--sp-2); border-radius: var(--r-pill); cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  font-weight: 600; font-size: var(--fs-xs); line-height: 1.7; font-family: inherit; white-space: nowrap;
+}
+.bd-mini.on { border-color: var(--danger); color: var(--danger); }
+/* режим правки: у подсказок появляется крестик, случайно не нажмёшь */
+.bd-fl .fl-x { margin-left: 6px; opacity: .7; font-weight: 800; }
+.bd-flavors.editing .bd-fl { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.bd-heats { display: flex; gap: var(--sp-2); }
+.bd-heats .bd-heat { flex: 1 1 0; min-height: 54px; font-size: var(--fs-lg); }
+.bd-heat.on, .bd-fl.on {
+  border-color: var(--ember); background: rgba(255,122,24,.18); color: var(--ember2);
+}
+/* состав чаши: что уже выбрано, с крестиком на каждой составляющей */
+.bd-mix { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-bottom: var(--sp-2); }
+.bd-mx {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px solid var(--ember); background: rgba(255,122,24,.18); color: var(--ember2);
+  font-weight: 600; font-size: var(--fs-md); line-height: 1.4; font-family: inherit; cursor: pointer;
+}
+.bd-mx .mx-x { opacity: .7; font-weight: 800; }
+.bd-search {
+  width: 100%; margin-bottom: var(--sp-2);
+  padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg2); color: var(--txt); font-size: var(--fs-lg); line-height: 1.4; font-family: inherit;
+}
+.bd-flavors {
+  display: flex; flex-wrap: wrap; gap: var(--sp-1);
+  max-height: 26vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+/* бренд мельче названия: в зале ищут глазами вкус, бренд уточняет */
+.bd-fl .fl-br { opacity: .65; font-size: var(--fs-xs); margin-right: 4px; }
+.bd-fl.off { border-style: dashed; }
+.bd-flavors .bd-fl { padding: 6px var(--sp-3); min-height: 34px; font-size: var(--fs-md); }
+
+/* Плотная сетка (много столов — низкие плитки): забивке нужно место,
+   и его отдаёт полоска прогресса, дублирующая тот же таймер. */
+/* полоска прогресса дублирует тот же таймер — её место отдаём забивке */
+.tile.has-bd .progress { display: none; }
+body.dense .tl-state { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.dense .bd-line { margin-top: 2px; }
+body.dense .bd-chip, body.dense .bd-stage { line-height: 1.5; }
+body.dense .hk-bd { display: none; }        /* в низкой multi-плитке строки и так впритык */
+
+
+/* ------------------------------------- окно голосового ввода ------------ */
+
+.vc-mic {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-3);
+  padding: var(--sp-4); margin-bottom: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg2);
+  font-size: var(--fs-xl); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.vc-mic .vc-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--dim); }
+.vc-mic.on { border-color: var(--danger); color: var(--txt); }
+.vc-mic.on .vc-dot { background: var(--danger); animation: vcPulse 1s ease-in-out infinite; }
+.vc-mic.wait .vc-dot { background: var(--ember2); animation: vcPulse .7s ease-in-out infinite; }
+@keyframes vcPulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+.vc-heard {
+  margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--ember2); background: rgba(255,179,71,.07);
+  border-radius: var(--r-sm); color: var(--ember2); font-size: var(--fs-md); line-height: 1.5;
+}
+.vc-items { display: flex; flex-direction: column; gap: var(--sp-2); max-height: 40vh; overflow-y: auto; }
+.vc-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card);
+}
+.vc-row .vc-t {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  background: rgba(255,122,24,.18); color: var(--ember2);
+  font-size: var(--fs-lg); font-weight: 800;
+}
+.vc-row.noteble { border-color: var(--ember2); }
+.vc-pick {
+  flex: 0 0 auto; max-width: 116px; padding: var(--sp-2) var(--sp-1);
+  border: 1px solid var(--ember2); border-radius: var(--r-sm);
+  background: var(--bg2); color: var(--ember2); font-weight: 700; font-size: var(--fs-sm); line-height: 1.2; font-family: inherit;
+}
+.vc-row .vc-b { flex: 1 1 auto; min-width: 0; }
+.vc-row .vc-w { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.vc-heat {
+  flex: 0 0 auto; padding: 3px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px dashed var(--line); background: transparent; color: var(--muted);
+  font-weight: 600; font-size: var(--fs-xs); line-height: 1.6; font-family: inherit; cursor: pointer; white-space: nowrap;
+}
+.vc-heat.on { border-style: solid; border-color: var(--ember); background: rgba(255,122,24,.16); color: var(--ember2); }
+.vc-cat { flex: 1 1 120px; min-width: 0; font-size: var(--fs-md); font-weight: 600; }
+.vc-off {
+  flex: 0 0 auto; padding: 1px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px dashed var(--ember2); color: var(--ember2); font-weight: 600; font-size: var(--fs-xs); line-height: 1.6; font-family: inherit;
+}
+.vc-fl {
+  flex: 1 1 120px; min-width: 0; padding: 4px var(--sp-2);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg2); color: var(--txt); font-weight: 600; font-size: var(--fs-md); line-height: 1.4; font-family: inherit;
+}
+.vc-sw { display: flex; gap: var(--sp-1); margin-top: var(--sp-1); flex-wrap: wrap; }
+.vc-m {
+  padding: 2px var(--sp-2); border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  font-weight: 600; font-size: var(--fs-xs); line-height: 1.7; font-family: inherit; cursor: pointer;
+}
+.vc-m.on { border-color: var(--ember); background: rgba(255,122,24,.18); color: var(--ember2); }
+.vc-x {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: var(--r-sm);
+  border: none; background: transparent; color: var(--muted);
+  font-size: var(--fs-md); cursor: pointer; opacity: .6; font-family: inherit;
+}
+.vc-x:active { opacity: 1; }
+
+/* ------------------------------------------------------------ окна ------ */
+
+.modal {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  inset: 0; z-index: 50;
+  display: grid; place-items: center; padding: var(--sp-4);
+  background: rgba(10,7,5,.78); backdrop-filter: blur(6px);
+}
+.modal-card {
+  width: 100%; max-width: 420px; max-height: 88vh; max-height: 88dvh; overflow-y: auto;
+  padding: var(--sp-5);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.wide-card { max-width: 560px; max-height: 88vh; max-height: 88dvh; }
+.modal-card h2 { margin: 0 0 var(--sp-4); font-size: var(--fs-xl); font-weight: 800; }
+
+.field {
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-md); color: var(--muted);
+}
+.field input[type="number"], .field input[type="text"], .field input[type="password"] {
+  padding: var(--sp-3);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--txt); font-size: var(--fs-lg); font-weight: 700; font-family: inherit;
+}
+.switch-row { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.switch-row input { width: 22px; height: 22px; flex: 0 0 auto; accent-color: var(--ember); }
+
+/* кнопок в окне может стать больше трёх — переносим строку, а не режем по краю */
+.modal-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); flex-wrap: wrap; }
+.modal-actions .btn { white-space: nowrap; text-decoration: none; }
+.modal-actions .btn { flex: 1 1 auto; min-width: 0; }
+
+.btn {
+  min-height: var(--tap); padding: var(--sp-3) var(--sp-4);
+  border: none; border-radius: var(--r-md); cursor: pointer;
+  background: rgba(255,255,255,.07); color: var(--txt);
+  font-size: var(--fs-lg); font-weight: 700; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1);
+  transition: transform .08s, filter .2s;
+}
+.btn:active { transform: scale(.96); }
+/* Чернила тёмные, а не белые: белый на оранжевом давал 3.02 при норме 4.5 —
+   главная кнопка была самой плохо читаемой на экране. Тёмный текст на
+   насыщенном фоне — тот же приём, что на плитках. */
+.btn.primary { background: linear-gradient(135deg, var(--ember2), var(--ember)); color: #14100b; }
+.btn.go      { background: linear-gradient(135deg, var(--ember2), var(--ember)); color: #14100b; }
+.btn.serve   { background: linear-gradient(135deg, var(--ok), #2f9e7d); color: #06251c; }
+/* «Отмена» давала 4.44 — второстепенность держим фоном и рамкой, а не
+   приглушённым текстом: читаться должна любая кнопка. */
+.btn.ghost   { background: rgba(255,255,255,.06); color: var(--txt); }
+.btn.danger  { color: var(--danger); }
+.btn.wide    { width: 100%; }
+.btn.mini    { min-height: 32px; padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); }
+.spam-btn    { flex: 0 0 auto; background: rgba(255,255,255,.06); color: var(--muted); }
+.spam-btn.arm { background: var(--danger); color: #fff; }
+
+.hint { margin: var(--sp-3) 0 0; font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.45; }
+.muted { color: var(--muted); font-size: var(--fs-sm); }
+.hidden { display: none !important; }
+
+/* --------------------------------------------------------- экран смены -- */
+
+.who-badge { margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 600; color: var(--ember2); }
+.crew-sec { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.crew-sec:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+.crew-sec h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-md); font-weight: 700; color: var(--ember2); }
+.crew-sec textarea, .svc-note {
+  width: 100%; padding: var(--sp-3); margin-bottom: var(--sp-3);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--txt); font-weight: 400; font-size: var(--fs-lg); line-height: 1.4; font-family: inherit; resize: vertical;
+}
+.crew-sec textarea { min-height: 68px; }
+
+.staff-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.staff-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md);
+  font-size: var(--fs-md);
+}
+.add-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+.add-row input {
+  flex: 1 1 110px; min-width: 0; padding: var(--sp-3);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md);
+  color: var(--txt); font-size: var(--fs-lg); font-family: inherit;
+}
+.add-row .btn { flex: 0 0 auto; }
+
+.journal { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 240px; overflow-y: auto; }
+.jrow { display: flex; gap: var(--sp-2); align-items: baseline; font-size: var(--fs-md); line-height: 1.35; }
+.jt { flex: 0 0 auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+.jw { flex: 0 0 auto; color: var(--ember2); font-weight: 700; }
+.jx { color: var(--muted); }
+
+/* ------------------------------------------- телефон: строже отступы ---- */
+
+@media (max-width: 560px) {
+  /* на телефоне размеры фиксированные: vh здесь врёт из-за панелей браузера */
+  :root {
+    --fs-timer: 24px;
+    --fs-timer-sm: 16px;
+    --fs-xl: 16px;
+  }
+  /* все столы в один экран не влезают — честная прокрутка вместо обрезанных плиток */
+  .tiles {
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    /* Шесть колонок как общий знаменатель: занятый стол занимает три
+       (половина ширины — там таймер, забивка и кнопки 44px), свободный две
+       (треть — про него знать нечего). Место уходит туда, где идёт работа. */
+    grid-template-columns: repeat(6, 1fr);
+    grid-auto-rows: max-content;               /* ряд растёт под содержимое */
+    align-items: stretch;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-2) calc(var(--sp-4) + var(--safe-b));
+  }
+  .tile { padding: var(--sp-2); border-radius: var(--r-md); min-height: 108px; }
+  .tile.multi { grid-column: span 2; }         /* столу с несколькими кальянами — двойная ширина */
+  /* Занятый стол теперь во всю половину экрана, и три кнопки (⇄ + ✕) влезают
+     в полный размер. Раньше их жали до 28px с зазором 3px — это и было
+     главной причиной промахов: норма Apple HIG и Material — 44px и зазор 8. */
+  .tl-head { flex-wrap: wrap; row-gap: var(--sp-1); }
+  .tl-num { flex: 0 0 auto; }
+  .tl-tools { gap: var(--sp-2); margin-left: auto; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 1; min-width: 0; }
+  .tl-add, .tl-x, .tl-mv { min-width: var(--tap); height: var(--tap); font-size: var(--fs-md); padding: 0 var(--sp-2); }
+  .tl-timer { flex: 0 0 auto; margin: var(--sp-1) 0; white-space: nowrap; }
+  .tl-state { font-size: var(--fs-xs); }
+  /* строки кальянов задают высоту плитки, а не вылезают из неё */
+  .hk-list { flex: 0 0 auto; overflow: hidden; margin-top: var(--sp-2); }
+  .hk { padding: var(--sp-1) var(--sp-2); gap: var(--sp-1); }
+  .hk-t { white-space: nowrap; font-size: 15px; }
+  .hk-r { display: none; }          /* номер круга не влезает — он есть в кружке слева */
+  .bd-t { display: none; }          /* «прогрев 4:10» на телефоне не помещается — цифра есть в «Забивках» */
+  .hk-x { width: 24px; height: 24px; }
+  .calls-bar { max-height: 40vh; max-height: 40dvh; padding: var(--sp-2) var(--sp-2) 0; }
+  .modal { padding: var(--sp-2); }
+  .modal-card { padding: var(--sp-4); }
+  .topbar { padding: calc(var(--sp-2) + var(--safe-t)) var(--sp-2) var(--sp-2); gap: var(--sp-1); }
+  .brand h1 { display: none; }                 /* на телефоне название не нужно — важнее кнопки */
+  .brand .conn.ok { display: none; }           /* «онлайн» на телефоне не влезает; ошибки — показываем */
+  .wx-bar { font-size: var(--fs-xs); gap: var(--sp-1) var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+  .wx-bar .wx-feels { display: none; }         /* на телефоне покороче, ветер и предупреждение остаются */
+  .wx-bar .wx-warn { padding: 2px 9px; }
+  /* Кнопок в шапке теперь три — остальные уехали в меню «ещё», поэтому размер
+     поднят до нормы 44px. Раньше их жали до 36, чтобы влезло восемь. */
+  .icon-btn { width: var(--tap); height: var(--tap); font-size: 16px; }
+  .shift-btn { height: var(--tap); min-width: var(--tap); padding: 0 var(--sp-2); }
+  .more-menu .icon-btn { width: auto; }
+  .top-actions { gap: var(--sp-1); }
+  .shift-btn { padding: 0 var(--sp-2); font-size: var(--fs-xs); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* =======================================================================
+   Цветная шкала состояния — опция (⚙️), по умолчанию выключена.
+   Красит плитку, кольцо и цифры одним тоном: мятный → янтарь → оранжевый → красный.
+   ======================================================================= */
+
+body.paint .tile.active.st-calm, body.paint .dial.st-calm, body.paint .hk.st-calm, body.paint .hk-cell.st-calm { --st: var(--ok); }
+body.paint .tile.active.st-soon, body.paint .dial.st-soon, body.paint .hk.st-soon, body.paint .hk-cell.st-soon { --st: var(--ember2); }
+body.paint .tile.active.st-now,  body.paint .dial.st-now,  body.paint .hk.st-now,  body.paint .hk-cell.st-now  { --st: var(--ember); }
+body.paint .tile.active.st-over, body.paint .dial.st-over, body.paint .hk.st-over, body.paint .hk-cell.st-over { --st: var(--danger); }
+
+body.paint .tile.active {
+  border-color: color-mix(in srgb, var(--st) 55%, transparent);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--st) 12%, var(--card)) 0%, var(--bg2) 78%);
+}
+body.paint .tile.active .tl-num { color: color-mix(in srgb, var(--st) 60%, var(--txt)); }
+body.paint .tile.active.st-now .tl-timer,
+body.paint .tile.active.st-over .tl-timer { color: var(--st); }
+body.paint .tile.active .progress > i { background: var(--st); }
+body.paint .tile.active .tl-add {
+  background: color-mix(in srgb, var(--st) 18%, transparent);
+  border-color: color-mix(in srgb, var(--st) 35%, transparent);
+  color: color-mix(in srgb, var(--st) 75%, var(--txt));
+}
+body.paint .dial .ring-fg { stroke: var(--st); }
+body.paint .dial .dial-round { color: color-mix(in srgb, var(--st) 80%, var(--txt)); }
+body.paint .dial.st-now .dial-t, body.paint .dial.st-over .dial-t { color: var(--st); }
+body.paint .hk, body.paint .hk-cell {
+  border-color: color-mix(in srgb, var(--st) 40%, transparent);
+  background: color-mix(in srgb, var(--st) 10%, rgba(255,255,255,.04));
+}
+body.paint .hk .hk-n {
+  background: color-mix(in srgb, var(--st) 25%, transparent);
+  color: color-mix(in srgb, var(--st) 80%, var(--txt));
+}
+body.paint .tile.alarm { border-color: var(--st); }
+
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  body.paint .tile.active { border-color: var(--st); }
+  body.paint .hk, body.paint .hk-cell { border-color: var(--st); }
+  body.paint .tile.active .tl-num, body.paint .dial .dial-round { color: var(--st); }
+}
+
+/* простой вид: пометка, что кальянов на столе несколько */
+.tl-multi { font-size: var(--fs-sm); font-weight: 700; color: var(--muted); }
+
+/* время кругов — три поля в ряд */
+.rounds-row { display: flex; gap: var(--sp-2); }
+.rounds-row .field { flex: 1; min-width: 0; margin-bottom: var(--sp-3); }
+.rounds-row .field span { font-size: var(--fs-sm); white-space: nowrap; }
+.rounds-row input { width: 100%; }
+
+/* ===== Свой (временный) стол и плитка «＋» ===== */
+.tile.addtile {
+  border-style: dashed; opacity: .55;
+  align-items: center; justify-content: center; gap: var(--sp-1);
+}
+.tile.addtile .add-plus { font-size: var(--fs-timer-sm); font-weight: 800; color: var(--ember2); }
+.tile.addtile .tl-state { margin-top: 0; }
+.tl-num.custom {
+  font-size: var(--fs-lg); font-weight: 800;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+
+
+/* в чипе кальяна: время / номер круга */
+.hk-sep { margin: 0 3px; color: var(--dim); font-weight: 600; }
+.hk-round { color: var(--ember2); font-weight: 800; }
+.hk.over .hk-sep { color: rgba(255,77,77,.6); }
+
+/* ==========================================================================
+   Светлая тема — переключается кнопкой в шапке, у каждого устройства своя.
+   Меняем только палитру: вся вёрстка держится на переменных.
+   ========================================================================== */
+body.light {
+  --bg: #f7f3ed;
+  --bg2: #fffdfa;
+  --card: #ffffff;
+  --line: #e3d9cc;
+  --txt: #241a13;
+  --muted: #6f6154;
+  --dim: #9c8d7e;
+  --ember: #d2600b;
+  --ember2: #a86a12;
+  --ok: #14875f;
+  --danger: #cf2626;
+  background: radial-gradient(1200px 600px at 50% -10%, #fff6e8 0%, transparent 60%), var(--bg);
+  color: var(--txt);
+}
+body.light .topbar {
+  background: linear-gradient(180deg, rgba(255,253,250,.97), rgba(255,253,250,.85));
+}
+body.light .tile { background: linear-gradient(165deg, #ffffff, #fbf7f1); box-shadow: 0 1px 2px rgba(36,26,19,.06); }
+/* ⚠️ Здесь была та же ловушка, что и в тёмной теме: `opacity: .6` гасила плитку
+   ЦЕЛИКОМ вместе с номером стола (замер дал 2.8:1 при норме 4.5). Приглушение —
+   фоном и рамкой, номер остаётся читаемым. */
+body.light .tile.idle { background: #efe8dd; border-color: rgba(36, 26, 19, .16); }
+body.light .tile.idle .tl-state { color: #8a7c6d; }
+body.light .tile.active { border-color: rgba(20,135,95,.45); }
+body.light .hk, body.light .hk-cell { background: #f6f1e9; }
+body.light .hk.over { background: rgba(207,38,38,.1); }
+body.light .hk-n { background: rgba(210,96,11,.16); color: #a04c06; }
+body.light .tl-add { background: rgba(210,96,11,.14); color: #a04c06; }
+body.light .tl-add, body.light .tl-x, body.light .tl-mv { border-color: var(--line); background-color: #f4efe7; color: var(--muted); }
+body.light .tl-x.arm { background: var(--danger); color: #fff; }
+body.light .icon-btn, body.light .shift-btn { background: #ffffff; }
+body.light .progress { background: rgba(36,26,19,.1); }
+body.light .ring-bg { stroke: rgba(36,26,19,.1); }
+body.light .modal { background: rgba(60,45,32,.35); }
+body.light .modal-card { background: #fffdfa; box-shadow: 0 12px 40px rgba(36,26,19,.18); }
+body.light .field input, body.light .add-row input,
+body.light .crew-sec textarea, body.light .svc-note { background: #f6f1e9; }
+body.light .staff-row { background: #f6f1e9; }
+body.light .btn { background: rgba(36,26,19,.07); }
+body.light .btn.ghost { background: #f2ece3; }
+/* ⚠️ Правило выше специфичнее, чем `.btn.primary`, и затирало заливку цветных
+   кнопок. «Запустить» оставалась белым текстом на почти белом фоне — контраст
+   1.1:1, кнопка выглядела выключенной, хотя прекрасно нажималась.
+   Цветным вариантам заливку возвращаем явно. */
+body.light .btn.primary,
+body.light .btn.go { background: linear-gradient(135deg, #ffb347, #f08a1c); color: #14100b; }
+body.light .btn.serve { background: linear-gradient(135deg, #0f7a55, #0d6b4a); color: #fff; }
+body.light .call-chip { background: linear-gradient(135deg, #ffe9e4, #fffdfa); }
+body.light .call-chip.acked { background: linear-gradient(135deg, #e6f7f0, #fffdfa); }
+/* ⚠️ Заливки лент были зашиты тёмными (#3a2410, #16302a, #3a1710). В светлой теме
+   градиент уходил из тёмно-коричневого в светлый «--card», текст на нём терялся —
+   на боевом планшете карточка заказа читалась только по кнопке. Новые ленты
+   ОБЯЗАНЫ иметь пару для светлой темы, иначе их не видно на стойке днём. */
+body.light .ord-chip { background: linear-gradient(135deg, #ffeedb, #fffdfa); }
+body.light .ord-chip .o-txt { color: #a34b00; }
+body.light .ev-chip { background: linear-gradient(135deg, #e6f7f0, #fffdfa); }
+body.light .ev-chip.acked { background: #f6faf8; border-color: rgba(20,135,95,.25); }
+body.light .offscreen { background: #ffe9e4; color: var(--txt); }
+body.light .svc-banner {
+  background: repeating-linear-gradient(45deg, rgba(210,96,11,.16) 0 12px, rgba(210,96,11,.07) 12px 24px);
+  color: #a04c06;
+}
+body.light .tile.addtile { background: #f6f1e9; }
+
+
+/* ==========================================================================
+   Совместимость со старыми планшетами (Safari до 14.1): там не работает
+   промежуток gap внутри flex — расставляем отступы вручную.
+   ========================================================================== */
+@supports not (row-gap: 1px) {
+  .topbar > * + *,
+  .top-actions > * + *,
+  .tl-tools > * + *,
+  .brand > * + *,
+  .call-chip > * + *,
+  .modal-actions > * + *,
+  .add-row > * + *,
+  .staff-row > * + *,
+  .jrow > * + *,
+  .hk > * + * { margin-left: 8px; }
+
+  .hk-list > * + *,
+  .calls-bar > * + *,
+  .staff-list > * + *,
+  .journal > * + * { margin-top: 6px; }
+
+  .tl-head > * + * { margin-left: 8px; }
+  .dial > * + * { margin-left: 8px; }
+  /* в две колонки на старом Safari не раскладываем — строками надёжнее */
+  .tile.multi .hk-list { display: block !important; }
+  .tile.multi .hk { display: flex; margin-bottom: 4px; }
+}
+
+/* ==========================================================================
+   Цвет стола по кругу обслуживания:
+   1-й — греем и раскуриваем (оранжевый), 2-й — одна замена (зелёный),
+   3-й — вторая замена (синий), 4-й — третья замена (красный),
+   5-й — последний круг (остаётся красным).
+   ========================================================================== */
+.tile.active.rd1 { --rd: #ff7a18; }
+.tile.active.rd2 { --rd: #4cc9a0; }
+.tile.active.rd3 { --rd: #4a9eff; }
+.tile.active.rd4,
+.tile.active.rd5 { --rd: #ff4d4d; }
+.hk.rd1, .hk-cell.rd1 { --rd: #ff7a18; }
+.hk.rd2, .hk-cell.rd2 { --rd: #4cc9a0; }
+.hk.rd3, .hk-cell.rd3 { --rd: #4a9eff; }
+.hk.rd4, .hk.rd5, .hk-cell.rd4, .hk-cell.rd5 { --rd: #ff4d4d; }
+
+/* Цвет круга — узкой полосой слева, а не заливкой всей плитки.
+   Полоса читается периферийным зрением через зал не хуже заливки, но не
+   глушит текст: раньше три занятых стола кричали одинаково громко и взгляд
+   не цеплялся ни за один. Заливается ТОЛЬКО просроченный (см. ниже) —
+   тогда красный наконец значит «беги», а не «стол занят». */
+.tile.active[class*="rd"] {
+  background: linear-gradient(165deg, var(--rd), color-mix(in srgb, var(--rd) 82%, #000));
+  border-color: color-mix(in srgb, var(--rd) 70%, #000);
+  color: #14100b;
+}
+.tile.active[class*="rd"] .tl-num,
+.tile.active[class*="rd"] .tl-timer,
+.tile.active[class*="rd"] .tl-state,
+.tile.active[class*="rd"] .hk-t,
+.tile.active[class*="rd"] .hk-r,
+.tile.active[class*="rd"] .hk-sm,
+.tile.active[class*="rd"] .dial-t { color: #14100b; }
+/* «курят N мин» на залитой плитке: тем же чернилом, но тише таймера */
+.tile.active[class*="rd"] .hk-sm { opacity: .72; }
+.tile.active[class*="rd"] .tl-state { opacity: .8; }
+.tile.active[class*="rd"] .progress { background: rgba(0, 0, 0, .22); }
+.tile.active[class*="rd"] .progress > i { background: rgba(0, 0, 0, .55); }
+.tile.active[class*="rd"] .tl-add,
+.tile.active[class*="rd"] .tl-x,
+.tile.active[class*="rd"] .tl-mv {
+  background: rgba(0, 0, 0, .22); border-color: rgba(0, 0, 0, .3); color: #14100b;
+}
+/* «i» на залитой плитке — светлая, а не чернильная: она единственная ведёт
+   вглубь, и её надо находить взглядом, а не искать среди одинаковых кнопок */
+.tile.active[class*="rd"] .tl-i {
+  background: rgba(255, 255, 255, .82); border-color: rgba(0, 0, 0, .28); color: #14100b;
+}
+/* Плитка больше не залита, поэтому чип живёт на обычном фоне.
+   Кнопка этапа — в цвете круга, а не чёрной таблеткой: чёрное пятно было
+   заплаткой ради контраста и выпадало из языка интерфейса. */
+.tile.active[class*="rd"] .bd-chip {
+  background: rgba(255, 255, 255, .85); border-color: rgba(0, 0, 0, .28); color: #14100b;
+}
+.tile.active[class*="rd"] .bd-chip.empty { background: rgba(255, 255, 255, .5); color: rgba(0, 0, 0, .6); }
+.tile.active[class*="rd"] .bd-t { color: rgba(0, 0, 0, .7); }
+.tile.active[class*="rd"] .bd-stage {
+  background: var(--ok); border-color: transparent; color: #0b1a15;
+}
+.tile.active[class*="rd"] .bd-stage.s-served {
+  background: var(--ember2); border-color: transparent; color: #2a1a05;
+}
+/* у каждой плашки кальяна свой цвет по ЕГО кругу: стол в целом красится по самому
+   старому кальяну, а новый кальян на том же столе видно по оранжевой плашке */
+.tile.active[class*="rd"] .hk,
+.tile.active[class*="rd"] .hk-cell {
+  background: linear-gradient(165deg, var(--rd), color-mix(in srgb, var(--rd) 76%, #000));
+  border-color: rgba(0, 0, 0, .35);
+}
+/* просроченная плашка — красная, каким бы ни был её круг */
+.tile.active[class*="rd"] .hk.over,
+.tile.active[class*="rd"] .hk-cell:has(.dial.over) {
+  background: linear-gradient(165deg, #ff4d4d, color-mix(in srgb, #ff4d4d 70%, #000));
+  border-color: rgba(0, 0, 0, .45);
+}
+.tile.active[class*="rd"] .hk.over .hk-t,
+.tile.active[class*="rd"] .hk.over .hk-time { color: #14100b; }
+.tile.active[class*="rd"] .hk-n { background: rgba(0, 0, 0, .3); color: #fff; }
+.tile.active[class*="rd"] .hk-round,
+.tile.active[class*="rd"] .hk-sep { color: rgba(0, 0, 0, .65); }
+.tile.active[class*="rd"] .hk-x { color: rgba(0, 0, 0, .5); }
+.tile.active[class*="rd"] .ring-bg { stroke: rgba(0, 0, 0, .2); }
+.tile.active[class*="rd"] .ring-fg { stroke: rgba(0, 0, 0, .6); }
+.tile.active[class*="rd"] .dial-round { color: rgba(0, 0, 0, .7); }
+
+/* браузеры без color-mix — просто сплошная заливка */
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .tile.active[class*="rd"] { background: var(--rd); border-color: var(--rd); }
+  .tile.active[class*="rd"] .hk,
+  .tile.active[class*="rd"] .hk-cell { background: var(--rd); }
+  .tile.active[class*="rd"] .hk.over { background: #ff4d4d; }
+}
+.dial .ring-fg { stroke: var(--rd, var(--ember)); }
+
+/* просрочка перебивает цвет круга: пора идти к столу */
+.tile.alarm, .tile.alarm[class*="rd"] { border-color: var(--danger) !important; }
+/* ⚠️ ПРОСРОЧКА ПЕРЕБИВАЕТ ЦВЕТ КРУГА.
+   Было: залитый стол оставался в цвете своего круга, а просрочку выдавала только
+   тонкая рамка. На боевом планшете это дало четыре стола, просроченных на шесть
+   минут, залитых СПОКОЙНЫМ ЗЕЛЁНЫМ (круг 2) — через зал читается как «всё хорошо».
+   Красный цвет должен значить «беги», а не «идёт четвёртый круг». */
+.tile.active.alarm[class*="rd"] { --rd: var(--danger); }
+body.light .tile.active.alarm[class*="rd"] { --rd: #b01c1c; }
+/* то же для отдельной записи кальяна в multi-плитке */
+.hk.over, .hk-cell.over { --rd: var(--danger); }
+.hk.over[class*="rd"] { border-color: var(--danger); background: rgba(255, 77, 77, .12); }
+.hk.over[class*="rd"] .hk-t { color: var(--danger); }
+
+/* Светлая тема: заливка НАСЫЩЕННАЯ, но чернила на ней белые.
+   Тёмный текст на таком тоне давал 4.2 / 3.82 / 3.57 при норме 4.5 — именно
+   поэтому раньше пришлось осветлять. Белый снимает это ограничение и позволяет
+   держать цвет в полную силу. */
+body.light .tile.active.rd1 { --rd: #b5520a; }
+body.light .tile.active.rd2 { --rd: #0d6b4a; }
+body.light .tile.active.rd3 { --rd: #14559f; }
+body.light .tile.active.rd4,
+body.light .tile.active.rd5 { --rd: #b01c1c; }
+
+body.light .tile.active[class*="rd"],
+body.light .tile.active[class*="rd"] .tl-num,
+body.light .tile.active[class*="rd"] .tl-timer,
+body.light .tile.active[class*="rd"] .tl-state,
+body.light .tile.active[class*="rd"] .hk-t,
+body.light .tile.active[class*="rd"] .hk-r,
+body.light .tile.active[class*="rd"] .dial-t { color: #fff; }
+body.light .tile.active[class*="rd"] .tl-state { opacity: .92; }
+body.light .tile.active[class*="rd"] .tl-add,
+body.light .tile.active[class*="rd"] .tl-x,
+body.light .tile.active[class*="rd"] .tl-mv {
+  background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .34); color: #fff;
+}
+body.light .tile.active[class*="rd"] .progress { background: rgba(255, 255, 255, .25); }
+body.light .tile.active[class*="rd"] .progress > i { background: #fff; }
+body.light .hk.rd1, body.light .hk-cell.rd1 { --rd: #d2600b; }
+body.light .hk.rd2, body.light .hk-cell.rd2 { --rd: #14875f; }
+body.light .hk.rd3, body.light .hk-cell.rd3 { --rd: #1d6fd0; }
+body.light .hk.rd4, body.light .hk.rd5,
+body.light .hk-cell.rd4, body.light .hk-cell.rd5 { --rd: #cf2626; }
+
+/* ==========================================================================
+   Экран загрузки: шаги подключения вместо пустой сетки
+   ========================================================================== */
+#boot {
+  position: fixed; inset: 0; z-index: 200;
+  background: #15100c;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .4s;
+}
+#boot.bye { opacity: 0; pointer-events: none; }
+body.light #boot { background: #f6f2ec; }
+.boot-card { text-align: center; padding: 24px; }
+.boot-logo { width: 76px; height: 76px; border-radius: 20px; }
+.boot-name { font-size: var(--fs-lg); font-weight: 800; margin: 10px 0 18px; }
+.boot-spin {
+  width: 26px; height: 26px; margin: 0 auto 18px;
+  border: 3px solid rgba(255, 122, 24, .25); border-top-color: #ff7a18;
+  border-radius: 50%; animation: bspin .8s linear infinite;
+}
+@keyframes bspin { to { transform: rotate(1turn); } }
+#bootSteps { display: grid; gap: 8px; width: max-content; margin: 0 auto; text-align: left; }
+.bs { color: var(--muted); font-size: var(--fs-sm); display: flex; gap: 8px; align-items: center; }
+.bs .bs-i { width: 20px; text-align: center; flex: 0 0 auto; }
+.bs.ok { color: var(--txt); }
+.bs.ok .bs-i { color: #4cc9a0; }
+.bs.err { color: #ff9b6b; }
+.boot-hint {
+  margin: 16px auto 0; max-width: 300px;
+  color: var(--muted); font-size: var(--fs-xs); line-height: 1.5;
+}
+
+/* ==========================================================================
+   Взведённый тап: первый тап подсвечивает стол, второй — запускает.
+   ========================================================================== */
+.armtap { outline: 3px solid #ffd23f; outline-offset: -2px; animation: armPulse .45s ease-in-out infinite alternate; }
+.tile.idle.armtap { border-color: #ffd23f; }
+.tile.idle.armtap .tl-state { color: #ffd23f; font-weight: 700; }
+body.light .tile.idle.armtap .tl-state { color: #9a6b00; }
+@keyframes armPulse {
+  from { outline-color: #ffd23f; }
+  to   { outline-color: rgba(255, 210, 63, .25); }
+}
+.dial.armtap { border-radius: var(--r-sm); }
+
+/* ==========================================================================
+   Перенос стола: сетка свободных столов в модалке
+   ========================================================================== */
+.mt-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: var(--sp-1); margin-bottom: var(--sp-2);
+}
+.mt-t { min-height: 52px; font-size: var(--fs-lg); font-weight: 800; }
+
+/* Узкая плитка: убираем всё, без чего можно работать, но НЕ подпись действия.
+   Порядок жертв: сначала «прогрев m:ss», потом текст вкуса в чипе. */
+@container (max-width: 250px) {
+  .bd-t { display: none; }
+}
+@container (max-width: 165px) {
+  .bd-chip { font-size: var(--fs-xs); padding: 2px 6px; }
+}
+@container (max-width: 175px) {
+  /* совсем тесно: значок в кнопке уступает место слову — «отдал» без галочки
+     понятнее, чем «✓ от…» */
+  .bd-stage .ic-s { display: none; }
+  .bd-stage { padding: 2px 6px; }
+}
+
+/* ==========================================================================
+   Телефон: место — работающим столам
+   ========================================================================== */
+@media (max-width: 560px) {
+  .tile { grid-column: span 3; }
+  .tile.idle, .tile.addtile { grid-column: span 2; }
+}
+
+/* И на широкой сетке занятые не делят ряд со свободными: первый свободный
+   (класс ставит applyOrder) начинает свой ряд. Дырка в конце ряда занятых —
+   осознанная: граница «работа выше, свободные ниже» читается через зал. */
+.tile.first-free { grid-column-start: 1; }
+
+
+/* В светлой теме мятная кнопка этапа давала 3.97 при норме 4.5, а на просрочке
+   3.44 — мерено на синтетических состояниях, а не на том, что было в зале.
+   Берём насыщенный тон с белым текстом: действие должно читаться всегда. */
+body.light .tile.active[class*="rd"] .bd-stage { background: #0f6e4d; color: #fff; }
+body.light .tile.active[class*="rd"] .bd-stage.s-served { background: #8a3f05; color: #fff; }
+body.light .tile.active.alarm[class*="rd"] .bd-stage { background: #b81f1f; color: #fff; }
+
+/* ==========================================================================
+   Меню «ещё»: редкие действия из шапки
+   ========================================================================== */
+.more-menu {
+  position: absolute; z-index: 40;
+  top: calc(var(--tap) + var(--safe-t) + var(--sp-4));
+  right: calc(var(--sp-2) + env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+  min-width: 210px;
+}
+body.light .more-menu { background: #fff; box-shadow: 0 12px 32px rgba(36, 26, 19, .18); }
+
+/* Иконка без подписи плохо угадывается, а подпись у кнопок уже есть в title —
+   выводим её же, не дублируя текст в разметке. */
+.more-menu .icon-btn {
+  width: auto; justify-content: flex-start;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 0 var(--sp-3); border: 0; background: none;
+  font-size: var(--fs-md); font-weight: 600; color: var(--txt);
+  text-align: left; border-radius: var(--r-sm);
+}
+.more-menu .icon-btn::after { content: attr(title); }
+.more-menu .icon-btn:active { background: rgba(255, 255, 255, .08); transform: none; }
+body.light .more-menu .icon-btn:active { background: rgba(36, 26, 19, .07); }
+.more-menu .icon-btn.off { opacity: 1; color: var(--muted); }
+
+/* Выбор бренда, когда его не назвали голосом: вкус найден, а марок с таким
+   названием несколько — показываем все, вместо того чтобы угадывать. */
+.bd-alts { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin: var(--sp-2) 0; }
+.bd-alts-t { flex: 0 0 100%; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 2px; }
+.bd-alt {
+  min-height: var(--tap); padding: 0 var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: rgba(255,255,255,.05); color: var(--txt);
+  font-weight: 600; font-size: var(--fs-sm); line-height: 1; font-family: inherit; font-family: inherit; cursor: pointer;
+}
+.bd-alt.on { border-color: var(--ok); background: rgba(76,201,160,.16); color: var(--ok); }
+body.light .bd-alt { background: #f4efe7; }
+body.light .bd-alt.on { border-color: #0f6e4d; background: #dff3ea; color: #0f6e4d; }
+
+/* ⚠️ У body стоит user-select: none — в WKWebView (нативное приложение) это
+   блокирует фокус в полях ввода, и клавиатура не поднимается вовсе.
+   В Safari сходит с рук, в приложении — нет. Полям выделение возвращаем. */
+input, textarea, select, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Точка в шапке — это статус связи, а не украшение.
+   На телефоне подпись «онлайн» скрыта, и цвет точки остаётся единственным
+   способом понять, есть ли сервер. */
+.brand .dot.ok {
+  background: radial-gradient(circle at 30% 30%, #7ee2c1, var(--ok));
+  box-shadow: 0 0 10px 2px rgba(76, 201, 160, .55);
+}
+.brand .dot.bad {
+  background: radial-gradient(circle at 30% 30%, #ff8a8a, var(--danger));
+  box-shadow: 0 0 10px 2px rgba(255, 77, 77, .55);
+  animation: dotPulse 1.6s ease-in-out infinite;
+}
+@keyframes dotPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* Сколько действий ждут отправки — видно, что работа не потеряна */
+.outbox {
+  font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
+  color: #14100b; background: var(--ember2);
+  padding: 3px 8px; border-radius: var(--r-pill);
+}
+body.light .outbox { background: #f08a1c; color: #14100b; }
+
+/* Сервисное сообщение смене (из панели управления). Не про стол, а про людей —
+   поэтому полосой сверху со своей кнопкой, а не карточкой вызова. */
+.note-banner { display: flex; align-items: center; gap: 10px; text-align: left; }
+.note-banner .nt { flex: 1; min-width: 0; }
+.note-banner button {
+  flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 0; cursor: pointer;
+  font-size: 13px; font-weight: 800; background: var(--txt, #f3e9df); color: var(--bg, #15100c);
+}
+
+
+/* ===== 19.08 (просьба Андрея): цвет круга — АКЦЕНТОМ, а не заливкой =====
+   Карточки занятых столов тёмные и спокойные, цвет живёт в полосе слева,
+   таймере и прогрессе. Просрочка — приглушённая красная подложка + красная
+   полоса и таймер: «беги» читается, но зал не кричит четырьмя цветами.
+   Блок лежит В КОНЦЕ файла и сознательно перекрывает старую заливку. */
+.tile.active[class*="rd"] {
+  background: var(--card);
+  border-color: var(--line);
+  box-shadow: inset 4px 0 0 var(--rd);
+  color: var(--txt);
+}
+.tile.active[class*="rd"] .tl-num,
+.tile.active[class*="rd"] .hk-sm,
+.tile.active[class*="rd"] .dial-t { color: var(--txt); }
+.tile.active[class*="rd"] .tl-timer { color: var(--rd); }
+.tile.active[class*="rd"] .tl-state { color: var(--muted); opacity: 1; }
+.tile.active[class*="rd"] .progress { background: rgba(255, 255, 255, .08); }
+.tile.active[class*="rd"] .progress > i { background: var(--rd); }
+.tile.active[class*="rd"] .tl-i,
+.tile.active[class*="rd"] .tl-add,
+.tile.active[class*="rd"] .tl-mv {
+  background: rgba(255, 255, 255, .08); border-color: var(--line); color: var(--txt);
+}
+.tile.active[class*="rd"] .bd-chip {
+  background: rgba(255, 255, 255, .08); border-color: var(--line); color: var(--txt);
+}
+.tile.active[class*="rd"] .bd-chip.empty { background: rgba(255, 255, 255, .04); color: var(--muted); }
+.tile.active[class*="rd"] .bd-t { color: var(--muted); }
+/* строки кальянов мульти-стола: тёмные, цвет полоской и временем */
+.tile.active[class*="rd"] .hk,
+.tile.active[class*="rd"] .hk-cell {
+  background: rgba(255, 255, 255, .05);
+  border-color: var(--line);
+  box-shadow: inset 3px 0 0 var(--rd);
+}
+.tile.active[class*="rd"] .hk-t { color: var(--txt); }
+.tile.active[class*="rd"] .hk .hk-time { color: var(--rd); }
+.tile.active[class*="rd"] .hk-round,
+.tile.active[class*="rd"] .hk-sep { color: var(--muted); }
+.tile.active[class*="rd"] .hk-n { background: rgba(255, 255, 255, .12); color: var(--txt); }
+.tile.active[class*="rd"] .hk-x { color: var(--muted); }
+.tile.active[class*="rd"] .ring-bg { stroke: rgba(255, 255, 255, .14); }
+.tile.active[class*="rd"] .ring-fg { stroke: var(--rd); }
+.tile.active[class*="rd"] .dial-round { color: var(--muted); }
+/* просрочка: подложка-акцент вместо полной заливки; полоса и таймер уже красные
+   через --rd: var(--danger) выше по файлу */
+.tile.active.alarm[class*="rd"] { background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
+.tile.active[class*="rd"] .hk.over {
+  background: color-mix(in srgb, var(--danger) 16%, var(--card));
+  box-shadow: inset 3px 0 0 var(--danger);
+  border-color: var(--danger);
+}
+.tile.active[class*="rd"] .hk.over .hk-t,
+.tile.active[class*="rd"] .hk.over .hk-time { color: var(--danger); }
+/* светлая тема: те же правила работают через токены; отменяем только белые чернила */
+body.light .tile.active[class*="rd"],
+body.light .tile.active[class*="rd"] .tl-num,
+body.light .tile.active[class*="rd"] .tl-state,
+body.light .tile.active[class*="rd"] .hk-t,
+body.light .tile.active[class*="rd"] .hk-r,
+body.light .tile.active[class*="rd"] .dial-t { color: var(--txt); }
+body.light .tile.active[class*="rd"] { background: var(--card); }
+body.light .tile.active[class*="rd"] .tl-timer { color: var(--rd); }
+body.light .tile.active[class*="rd"] .tl-state { color: var(--muted); opacity: 1; }
+body.light .tile.active[class*="rd"] .tl-add,
+body.light .tile.active[class*="rd"] .tl-i,
+body.light .tile.active[class*="rd"] .tl-mv {
+  background: rgba(0, 0, 0, .05); border-color: var(--line); color: var(--txt);
+}
+body.light .tile.active[class*="rd"] .progress { background: rgba(0, 0, 0, .08); }
+body.light .tile.active[class*="rd"] .progress > i { background: var(--rd); }
+body.light .tile.active.alarm[class*="rd"] { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+/* старые браузеры без color-mix: тёмная карточка, просрочка — полупрозрачный красный */
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .tile.active[class*="rd"] { background: var(--card); border-color: var(--line); }
+  .tile.active[class*="rd"] .hk,
+  .tile.active[class*="rd"] .hk-cell { background: rgba(255, 255, 255, .05); }
+  .tile.active.alarm[class*="rd"] { background: rgba(255, 77, 77, .14); }
+  .tile.active[class*="rd"] .hk.over { background: rgba(255, 77, 77, .16); }
+}
+
+/* слово-подпись над временем */
+.tl-timer i { display: block; font-style: normal; font-weight: 600; font-size: 12px;
+  letter-spacing: .03em; opacity: .85; line-height: 1.1; }
+
+
+/* ===== 19.08 (2): крестик закрытия — нейтральный и читаемый на любом круге =====
+   Тёмная нейтральная плашка + светлый xmark: на красной, оранжевой и зелёной
+   карточке выглядит одинаково живым, а не «отключённым». Красным становится
+   ТОЛЬКО в момент нажатия. Тач-зона расширена до ≥44px невидимым полем. */
+.tile .tl-x,
+.tile.active[class*="rd"] .tl-x,
+body.light .tile .tl-x,
+body.light .tile.active[class*="rd"] .tl-x {
+  background: rgba(0, 0, 0, .28);
+  border: 1px solid rgba(255, 255, 255, .12);
+  color: rgba(255, 255, 255, .8);
+  position: relative;
+}
+.tile .tl-x .ic { stroke-width: 2.2; }
+.tile .tl-x::after { content: ""; position: absolute; inset: -6px; }
+.tile .tl-x:active,
+.tile.active[class*="rd"] .tl-x:active,
+body.light .tile .tl-x:active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  transform: scale(.9);
+}
+
+
+/* ===== 19.08 (3): адаптив iPhone по замечаниям Андрея (v186) ===== */
+/* зазор между подписью и временем: «До подхода 4:08» */
+.tl-timer i { margin-right: .32em; }
+
+@media (max-width: 560px) {
+  /* 1. название точки и статус возвращаются в шапку */
+  /* имя точки целиком — ужиматься должна кнопка смены, а не «Стамбул» */
+  .brand h1 { display: block; font-size: 17px; flex: 0 0 auto; }
+  .brand .conn.ok { display: inline-flex; }
+  .shift-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 2. погода: только «+18° · ветер · порывы»; про отсутствие осадков молчим,
+     предупреждение (дождь/ветер) остаётся видимым */
+  .wx-bar .wx-ok { display: none; }
+  /* 3. карточка: номер и три кнопки ВСЕГДА одной строкой — переносов нет */
+  .tl-head { flex-wrap: nowrap; }
+  .tl-tools { flex-wrap: nowrap; flex-shrink: 0; }
+  .tl-num { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* подпись и время таймера — одной строкой с зазором.
+     ⚠️ Здесь нужен !important: базовое правило со «словом над временем»
+     (display:block) почему-то стабильно выигрывает у этого при равной
+     специфичности — Chromium-каскад ведёт себя не по учебнику. */
+  .tile .tl-timer i { display: inline !important; }
+  /* 4. кнопки на ~13% меньше, тач-зона добирается невидимым полем до ≥46px */
+  .tl-i, .tl-add, .tl-x, .tl-mv { min-width: 38px; height: 38px; position: relative; }
+  .tl-i::after, .tl-add::after, .tl-mv::after, .tl-x::after {
+    content: ""; position: absolute; inset: -4px;
+  }
+  .tl-i .ic { width: 18px; height: 18px; }
+  .tl-add .ic, .tl-x .ic, .tl-mv .ic { width: 18px; height: 18px; }
+  .icon-btn { width: 40px; height: 40px; position: relative; }
+  .icon-btn::after { content: ""; position: absolute; inset: -3px; }
+  .shift-btn { height: 40px; }
+  /* 5. занятые и свободные не смешиваются в ряду: первый свободный (класс
+     ставит applyOrder) начинает свой ряд — выше только работа, ниже только
+     свободные по номерам */
+  .tile.first-free { grid-column: 1 / span 2; }
+  /* multi-стол: ранний `.tile.multi { span 2 }` из десктопного блока побеждал
+     телефонный `span 3` специфичностью — стол с ДВУМЯ кальянами выходил УЖЕ
+     свободного. На телефоне ему вся ширина: строк кальянов там две и больше. */
+  .tile.multi { grid-column: span 6; }
+}
+
+/* ==========================================================================
+   ФИНАЛЬНЫЙ КРУГ И ОТКАТ ЗАКРЫТИЯ
+   Последний круг заведения — не «ещё один»: с него кальян завершают. Плитка
+   говорит об этом словами («Финальный круг»), взвод перед закрытием красный,
+   а не жёлтый, как перед новым кругом: цвет должен отличать «продлю» от
+   «закрою». Ф вместо цифры круга — чтобы в тесной строке мульти-стола и на
+   кольце это было видно без чтения подписи.
+   ========================================================================== */
+.lb-fin { color: #ffd23f; font-weight: 800; }
+body.light .lb-fin { color: #9a6b00; }
+.hk.fin .hk-round, .dial.fin .dial-round { color: var(--danger); }
+.tile.active .hk.fin .hk-round { color: #ffd23f; }
+
+/* взвод на финальном круге — красный: следующее нажатие ЗАКРОЕТ */
+.armtap.fin { outline: 3px solid var(--danger); outline-offset: -2px; animation-name: armFinPulse; }
+.tile.idle.armtap .lb-fin { color: #ffd23f; }
+@keyframes armFinPulse {
+  from { outline-color: var(--danger); }
+  to   { outline-color: rgba(255, 77, 77, .28); }
+}
+
+/* «Стол 12 закрыт · Отменить» — 45 секунд внизу экрана, поверх сетки */
+.undo-toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 60;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 560px); padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--card); color: var(--txt);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  font-size: var(--fs-md); font-weight: 700;
+}
+.undo-toast.hidden { display: none; }
+.undo-toast .ut-do {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 0 12px; flex-shrink: 0;
+  border: 1px solid var(--ember); border-radius: var(--r-sm);
+  background: transparent; color: var(--ember2);
+  font: inherit; font-weight: 800; cursor: pointer;
+}
+.undo-toast .ut-do:active { background: rgba(255, 122, 24, .18); }
+.undo-toast .ut-x {
+  min-width: 36px; min-height: 36px; flex-shrink: 0;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+body.light .undo-toast { box-shadow: 0 10px 30px rgba(0, 0, 0, .18); }
+
+/* Подтверждение закрытия. Фраза длинная, а плитка в плотной сетке узкая:
+   в dense-режиме подпись обрезается многоточием — «Нажмите ещё раз, чтобы …»
+   не говорит главного, ЧТО произойдёт. Здесь разрешаем перенос и чуть меньший
+   кегль: размер считается от экрана, а не подобран под одну ширину плитки. */
+.tl-state.confirm {
+  font-size: clamp(10px, .5vw + 6.5px, 13px); line-height: 1.15;
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
+body.dense .tl-state.confirm { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* Строка кальяна на мульти-столе во взведённом состоянии: вопрос вместо цифр.
+   Кегль считается от экрана (clamp), а не подобран под одну ширину плитки —
+   строка узкая, а фраза длинная, и обрезать её нельзя. */
+.hk-ask {
+  flex: 1 1 auto; min-width: 0; text-align: center;
+  font-size: clamp(9px, .35vw + 6.5px, 12px); line-height: 1.1;
+  font-weight: 800; color: #ffd23f; white-space: normal;
+}
+.hk.fin .hk-ask { color: #ffd23f; }
+
+/* Вид «кольца»: во время подтверждения плитка отдаёт место вопросу.
+   Подпись под кольцом в плотной сетке 40 столов обрезается краем плитки —
+   а «Нажмите ещё раз, чтобы закрыть» человек обязан прочитать целиком. */
+.ask-box {
+  flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+  min-height: 0; padding: 2px 6px; text-align: center;
+  border-radius: var(--r-sm); outline: 3px solid var(--danger); outline-offset: -2px;
+  animation: armFinPulse .45s ease-in-out infinite alternate;
+}
+.ask-box .hk-ask { font-size: clamp(11px, .5vw + 7px, 15px); }
+.hk-cell.armtap { outline: none; }          /* контур рисует сам вопрос, двойной не нужен */

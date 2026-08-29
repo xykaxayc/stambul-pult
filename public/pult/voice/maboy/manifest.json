@@ -1,0 +1,94 @@
+{
+ "model": "s2.1-pro-free",
+ "tables": 9,
+ "files": {
+  "t01_overdue": {
+   "text": "Стол первый. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t01_overdue3": {
+   "text": "Стол первый!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t02_overdue": {
+   "text": "Стол второй. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t02_overdue3": {
+   "text": "Стол второй!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t03_overdue": {
+   "text": "Стол третий. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t03_overdue3": {
+   "text": "Стол третий!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t04_overdue": {
+   "text": "Стол четвёртый. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t04_overdue3": {
+   "text": "Стол четвёртый!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t05_overdue": {
+   "text": "Стол пятый. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t05_overdue3": {
+   "text": "Стол пятый!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t06_overdue": {
+   "text": "Стол шестой. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t06_overdue3": {
+   "text": "Стол шестой!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t07_overdue": {
+   "text": "Стол седьмой. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t07_overdue3": {
+   "text": "Стол седьмой!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t08_overdue": {
+   "text": "Стол восьмой. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t08_overdue3": {
+   "text": "Стол восьмой!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "t09_overdue": {
+   "text": "Стол девятый. [pause] Круг вышел, угли [emphasis] всё. [pause] Иди спасай.",
+   "voice": "МАБОЙ"
+  },
+  "t09_overdue3": {
+   "text": "Стол девятый!! [pause] Вы там [emphasis] уснули?! [pause] Гость сидит, угли остыли! [emphasis] Немедленно к столу! [pause] Однозначно!",
+   "voice": "МАБОЙ"
+  },
+  "_shift_on": {
+   "text": "Смена открыта. [emphasis] Погнали.",
+   "voice": "МАБОЙ"
+  },
+  "_shift_off": {
+   "text": "Смена закрыта. [pause] Все свободны. [chuckle] Наконец-то.",
+   "voice": "МАБОЙ"
+  },
+  "_service_on": {
+   "text": "Сервисный режим. [pause] Тишина в эфире.",
+   "voice": "МАБОЙ"
+  },
+  "_test": {
+   "text": "Проверка звука. [pause] Так будет звучать пульт «Серп».",
+   "voice": "МАБОЙ"
+  }
+ }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Зал · официант",
+  "short_name": "Официант",
+  "id": "/pult/?r=waiter",
+  "start_url": "/pult/?r=waiter",
+  "scope": "/pult/",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "any",
+  "background_color": "#0c0c0e",
+  "theme_color": "#0c0c0e",
+  "icons": [
+    { "src": "icons/role-waiter-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/role-waiter-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/role-waiter-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

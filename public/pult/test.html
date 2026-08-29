@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Проверка вызовов · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --bg2: #1e1611; --card: #241a13; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --ember: #ff7a18; --ember2: #ffb347;
+    --ok: #4cc9a0; --danger: #ff4d4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt); min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: calc(20px + env(safe-area-inset-top,0px)) calc(14px + env(safe-area-inset-right,0px)) calc(60px + env(safe-area-inset-bottom,0px)) calc(14px + env(safe-area-inset-left,0px));
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 8px; line-height: 1.5; }
+  .warn {
+    border: 1px solid var(--line); border-left: 3px solid var(--ember2);
+    background: rgba(255,179,71,.08); border-radius: 10px; padding: 10px 12px;
+    color: var(--ember2); font-size: 13px; line-height: 1.5; margin: 12px 0 16px;
+  }
+  a.back { color: var(--ember2); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--card);
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+  }
+  .card.flash { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 40%, transparent); }
+  .card.err { border-color: var(--danger); }
+  .ctop { display: flex; gap: 10px; align-items: center; }
+  .qr {
+    width: 60px; height: 60px; border-radius: 8px; background: #fff; padding: 3px; flex: 0 0 auto;
+    display: block; object-fit: contain;
+  }
+  .cnum { font-size: 20px; font-weight: 700; line-height: 1; }
+  .cnum small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 3px; }
+  .btns { display: flex; flex-direction: column; gap: 6px; }
+  .tb {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); color: var(--txt);
+    font-size: 13px; line-height: 1.2; font-family: inherit; padding: 9px 8px; cursor: pointer; text-align: left;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tb:active { background: color-mix(in srgb, var(--ember) 22%, var(--bg2)); }
+  .tb .i { font-size: 15px; }
+  .stat { font-size: 12px; min-height: 15px; color: var(--muted); }
+  .stat.ok { color: var(--ok); } .stat.bad { color: var(--danger); }
+  /* вход по ПИН */
+  #pinGate { max-width: 340px; margin: 40px auto 0; }
+  input {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--txt); font-size: 16px; line-height: 1.4; font-family: inherit; padding: 12px; width: 100%; margin: 10px 0;
+  }
+  .btn { padding: 12px 16px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--bg2); color: var(--txt); font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.primary { background: var(--ember); color: #14100b; border-color: var(--ember); }
+  .hidden { display: none !important; }
+  .msg { color: var(--muted); font-size: 13px; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- вход -->
+    <div id="pinGate" class="hidden">
+      <h1>Проверка вызовов</h1>
+      <p class="sub" id="pinMsg">Введите ПИН администратора.</p>
+      <input type="password" id="pin" inputmode="numeric" autocomplete="off" placeholder="ПИН" />
+      <button class="btn primary" id="pinGo" style="width:100%">Войти</button>
+    </div>
+
+    <!-- панель -->
+    <div id="panel" class="hidden">
+      <div class="head">
+        <h1>🧪 Проверка вызовов со столов</h1>
+        <a class="back" href="/pult/">← в пульт</a>
+      </div>
+      <p class="sub">Нажмите кнопку у любого стола — на планшеты уйдёт <b>настоящий вызов</b> с пометкой «🔧 проверка связи»:
+        он появится в ленте пульта, пикнет и придёт пушем тем, кто на смене. QR-код можно навести телефоном — откроется гостевая страница стола.</p>
+      <div class="warn" id="hint">Чтобы увидеть результат: держите пульт открытым на планшете (или откройте <a href="/pult/" style="color:inherit">/pult/</a> во второй вкладке). Push приходит только тем, кто «на смене».</div>
+      <div class="grid" id="grid"></div>
+      <p class="msg" id="msg"></p>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const getKey = () => localStorage.getItem("serp.key") || "";
+  const H = () => ({ "X-Pult-Key": getKey() });
+  const esc = (s) => String(s == null ? "" : s).replace(/[<>&"']/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  let kinds = [{ id: "master", icon: "🫖", label: "Позвать" }];
+
+  function shortLabel(b) {
+    // в кнопку — покороче, чтобы влезало
+    const map = { master: "Позвать", coals: "Угли", other: "Вопрос" };
+    return map[b.id] || (b.label || "").split(" ")[0] || "Вызов";
+  }
+
+  async function build() {
+    // кнопки-виды берём из гостевой конфигурации
+    try {
+      const cfg = await (await fetch("/api/config")).json();
+      if (cfg.buttons && cfg.buttons.length) kinds = cfg.buttons;
+    } catch {}
+    // столы с QR-путями
+    let tables = [];
+    try {
+      const q = await (await fetch("/api/qr", { headers: H() })).json();
+      if (q.status === 401) return showGate("Сессия истекла — введите ПИН ещё раз.");
+      tables = q.tables || [];
+    } catch { $("msg").textContent = "Не удалось загрузить столы."; return; }
+
+    $("grid").innerHTML = tables.map((t) => `
+      <div class="card" id="card-${t.n}">
+        <div class="ctop">
+          <a href="${esc(t.path)}" target="_blank" rel="noopener" title="открыть гостевую страницу стола ${t.n}">
+            <img class="qr" src="${esc(t.img)}" alt="QR стол ${t.n}" loading="lazy" />
+          </a>
+          <div class="cnum">${t.n}<small>стол</small></div>
+        </div>
+        <div class="btns">
+          ${kinds.map((k) => `<button class="tb" data-n="${t.n}" data-kind="${esc(k.id)}">
+            <span class="i">${esc(k.icon || "🔔")}</span>${esc(shortLabel(k))}</button>`).join("")}
+        </div>
+        <div class="stat" id="stat-${t.n}"></div>
+      </div>`).join("");
+  }
+
+  async function testCall(n, kind, btn) {
+    const stat = $("stat-" + n);
+    const card = $("card-" + n);
+    stat.textContent = "отправляю…"; stat.className = "stat";
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/testcall", { method: "POST",
+        headers: { "Content-Type": "application/json", ...H() }, body: JSON.stringify({ table: n, kind }) });
+      if (r.status === 401) { showGate("Сессия истекла — войдите ещё раз."); return; }
+      const d = await r.json();
+      if (!d.ok) { stat.textContent = "⚠️ " + (d.error || "не отправилось"); stat.className = "stat bad"; card.classList.add("err"); return; }
+      stat.textContent = d.pushTo > 0 ? `✓ ушло · push на ${d.pushTo}` : "✓ ушло · в ленте пульта (на смене никого)";
+      stat.className = "stat ok";
+      card.classList.remove("err"); card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1500);
+    } catch { stat.textContent = "нет связи"; stat.className = "stat bad"; }
+    finally { btn.disabled = false; }
+  }
+
+  $("grid").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-kind]");
+    if (!b) return;
+    testCall(+b.dataset.n, b.dataset.kind, b);
+  });
+
+  /* ---- вход по ПИН админа ---- */
+  function showGate(msg) {
+    $("panel").classList.add("hidden");
+    $("pinGate").classList.remove("hidden");
+    if (msg) $("pinMsg").textContent = msg;
+    $("pin").focus();
+  }
+  function openPanel() {
+    $("pinGate").classList.add("hidden");
+    $("panel").classList.remove("hidden");
+    build();
+  }
+  $("pinGo").addEventListener("click", async () => {
+    const pin = $("pin").value.trim();
+    if (!pin) return;
+    $("pinMsg").textContent = "Проверяю…";
+    try {
+      const d = await (await fetch("/api/login", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) })).json();
+      if (!d.ok) { $("pinMsg").textContent = d.error || "Не получилось войти"; return; }
+      if (d.role !== "admin") { $("pinMsg").textContent = "Этот ПИН не админский — проверка только для админа."; return; }
+      localStorage.setItem("serp.key", d.token);
+      localStorage.setItem("serp.me", JSON.stringify({ name: d.name, role: d.role }));
+      $("pin").value = "";
+      openPanel();
+    } catch { $("pinMsg").textContent = "Нет связи с сервером"; }
+  });
+  $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinGo").click(); });
+
+  (async () => {
+    if (!getKey()) { showGate(); return; }
+    try {
+      const r = await fetch("/api/me", { headers: H() });
+      if (r.status === 401) { showGate(); return; }
+      const d = await r.json();
+      if (d.ok && d.role === "admin") openPanel();
+      else showGate("Вы вошли как сотрудник. Проверка вызовов — по ПИНу админа.");
+    } catch { showGate("Нет связи с сервером."); }
+  })();
+</script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

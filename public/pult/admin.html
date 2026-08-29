@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Гостевая страница · админка · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --bg2: #1e1611; --card: #241a13; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --ember: #ff7a18; --ember2: #ffb347;
+    --ok: #4cc9a0; --danger: #ff4d4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt); min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: calc(22px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) calc(60px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; line-height: 1.5; }
+  .row {
+    border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+    background: var(--card); display: grid; gap: 8px; margin-bottom: 12px;
+  }
+  .line { display: flex; gap: 8px; }
+  input, textarea {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--txt); font-size: 15px; line-height: 1.4; font-family: inherit; padding: 10px 12px; min-width: 0; width: 100%;
+  }
+  .icon { width: 58px; text-align: center; flex: 0 0 auto; font-size: 18px; }
+  .lbl { flex: 1 1 auto; }
+  .del {
+    flex: 0 0 auto; width: 42px; border: 1px solid var(--line); border-radius: 10px;
+    background: none; color: var(--danger); font-size: 15px; cursor: pointer;
+  }
+  .check { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+  .check input { width: auto; }
+  .btn {
+    width: 100%; padding: 14px; border: none; border-radius: 12px; cursor: pointer;
+    font-size: 15px; font-weight: 800; margin-top: 6px;
+  }
+  .btn.ghost { background: none; border: 1px dashed var(--line); color: var(--muted); }
+  .btn.primary { background: linear-gradient(135deg, var(--ember), #e85d04); color: #fff; }
+  .field-name { color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
+  .msg { min-height: 20px; font-size: 14px; color: var(--ok); margin-top: 10px; text-align: center; }
+  .msg.err { color: var(--danger); }
+  .preview-link { display: block; text-align: center; color: var(--ember2); font-size: 14px; margin-top: 18px; }
+  #pinGate { max-width: 320px; margin: 15vh auto 0; text-align: center; }
+  #pinGate input { text-align: center; font-size: 20px; letter-spacing: 4px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="pinGate" class="hidden">
+  <h1>Админка гостевой страницы</h1>
+  <p class="sub" id="pinMsg">Введите ПИН администратора.</p>
+  <input type="password" id="pin" inputmode="numeric" autocomplete="off" />
+  <button class="btn primary" id="pinGo">Войти</button>
+</div>
+
+<div class="wrap hidden" id="editor">
+  <h1>Гостевая страница (по QR)</h1>
+  <p class="sub">Кнопки, которые гость видит, отсканировав QR со стола. Первая — главная (оранжевая).
+    Эти же названия и значки показываются в вызовах на пульте. Гости увидят правки при следующем открытии страницы.</p>
+
+  <div id="list"></div>
+  <button class="btn ghost" id="add">＋ Добавить кнопку (до 6)</button>
+
+  <p class="field-name">Блок «Пока вы ждёте» — каждая строка станет абзацем; пусто — блок скрыт</p>
+  <textarea id="info" maxlength="600" rows="4"></textarea>
+
+  <button class="btn primary" id="save">Сохранить</button>
+  <p class="msg" id="msg"></p>
+  <a class="preview-link" id="preview" target="_blank" rel="noopener">Открыть гостевую страницу глазами гостя (стол 1) ↗</a>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[<>&"']/g, (ch) =>
+  ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[ch]));
+const getKey = () => localStorage.getItem("serp.key") || "";
+let buttons = [];
+
+function draw() {
+  $("list").innerHTML = buttons.map((b, i) => `
+    <div class="row">
+      <div class="line">
+        <input class="icon" data-i="${i}" data-f="icon" value="${esc(b.icon || "")}" maxlength="8" title="значок" />
+        <input class="lbl" data-i="${i}" data-f="label" value="${esc(b.label || "")}" maxlength="40" placeholder="Текст кнопки" />
+        <button class="del" data-del="${i}" title="убрать кнопку">✕</button>
+      </div>
+      <input data-i="${i}" data-f="sub" value="${esc(b.sub || "")}" maxlength="60" placeholder="Подстрочник мелким шрифтом" />
+      <input data-i="${i}" data-f="done" value="${esc(b.done || "")}" maxlength="80" placeholder="Что видит гость после нажатия" />
+      <label class="check"><input type="checkbox" data-i="${i}" data-f="withComment" ${b.withComment ? "checked" : ""} /> с полем «напишите пару слов»</label>
+    </div>`).join("");
+}
+function readForm() {
+  for (const inp of $("list").querySelectorAll("[data-i]")) {
+    const b = buttons[+inp.dataset.i];
+    if (b) b[inp.dataset.f] = inp.type === "checkbox" ? inp.checked : inp.value;
+  }
+}
+function say(text, isErr) { const m = $("msg"); m.textContent = text; m.className = "msg" + (isErr ? " err" : ""); }
+
+async function load() {
+  const d = await (await fetch("/api/config")).json();
+  buttons = (d.buttons || []).map((b) => ({ ...b }));
+  $("info").value = d.info || "";
+  draw();
+  // ссылка «глазами гостя» — подписанный адрес стола 1 (нужен ключ)
+  try {
+    const q = await (await fetch("/api/qr", { headers: { "X-Pult-Key": getKey() } })).json();
+    if (q.ok && q.tables && q.tables[0]) $("preview").href = q.tables[0].path;
+    else $("preview").classList.add("hidden");
+  } catch { $("preview").classList.add("hidden"); }
+}
+
+$("list").addEventListener("click", (e) => {
+  const del = e.target.closest("[data-del]");
+  if (!del) return;
+  readForm();                        // не потерять правки соседних полей
+  buttons.splice(+del.dataset.del, 1);
+  draw();
+});
+$("add").addEventListener("click", () => {
+  if (buttons.length >= 6) { say("Максимум 6 кнопок.", true); return; }
+  readForm();
+  buttons.push({ icon: "🔔", label: "", sub: "", done: "", withComment: false });
+  draw();
+});
+$("save").addEventListener("click", async () => {
+  readForm();
+  say("Сохраняю…");
+  try {
+    const r = await fetch("/api/guest", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Pult-Key": getKey() },
+      body: JSON.stringify({ buttons, info: $("info").value }) });
+    if (r.status === 401) { showGate("Сессия истекла — введите ПИН ещё раз."); return; }
+    const d = await r.json();
+    if (!d.ok) { say(d.error || "Не получилось", true); return; }
+    buttons = d.buttons.map((b) => ({ ...b }));
+    draw();
+    say("Сохранено ✓ Гости увидят при следующем открытии страницы.");
+  } catch { say("Нет связи с сервером.", true); }
+});
+
+/* ---- вход по ПИН админа; токен общий с пультом на этом устройстве ---- */
+function showGate(msg) {
+  $("editor").classList.add("hidden");
+  $("pinGate").classList.remove("hidden");
+  if (msg) $("pinMsg").textContent = msg;
+  $("pin").focus();
+}
+async function openEditor() {
+  $("pinGate").classList.add("hidden");
+  $("editor").classList.remove("hidden");
+  try { await load(); } catch { say("Не удалось загрузить настройки.", true); }
+}
+$("pinGo").addEventListener("click", async () => {
+  const pin = $("pin").value.trim();
+  if (!pin) return;
+  $("pinMsg").textContent = "Проверяю…";
+  try {
+    const d = await (await fetch("/api/login", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) })).json();
+    if (!d.ok) { $("pinMsg").textContent = d.error || "Не получилось войти"; return; }
+    if (d.role !== "admin") { $("pinMsg").textContent = "Этот ПИН не админский — правка гостевой только для админа."; return; }
+    localStorage.setItem("serp.key", d.token);
+    localStorage.setItem("serp.me", JSON.stringify({ name: d.name, role: d.role }));
+    $("pin").value = "";
+    openEditor();
+  } catch { $("pinMsg").textContent = "Нет связи с сервером"; }
+});
+$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinGo").click(); });
+
+/* старт: если на устройстве уже есть админский вход (тот же домен, что пульт) — сразу в редактор */
+(async () => {
+  if (!getKey()) { showGate(); return; }
+  try {
+    const r = await fetch("/api/me", { headers: { "X-Pult-Key": getKey() } });
+    if (r.status === 401) { showGate(); return; }
+    const d = await r.json();
+    if (d.ok && d.role === "admin") openEditor();
+    else showGate("Вы вошли как сотрудник. Правка гостевой — только по ПИНу админа.");
+  } catch { showGate("Нет связи с сервером."); }
+})();
+</script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

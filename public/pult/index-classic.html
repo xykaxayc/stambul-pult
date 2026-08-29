@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#15100c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Стамбул" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon3-192.png" />
+  <link rel="stylesheet" href="style.css?v=188" />
+  <!-- iOS-скин: активен только в нативном приложении (класс native по протоколу
+       capacitor://), в браузере файл инертен. Класс вешаем ДО загрузки стилей,
+       чтобы приложение не мигало вебовским видом. -->
+  <script>
+    if (location.protocol === "capacitor:" || location.protocol === "ionic:")
+      document.documentElement.classList.add("native");
+  </script>
+  <link rel="stylesheet" href="ios.css?v=1" />
+  <title>Пульт кальянщика · Стамбул</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<link rel="shortcut icon" href="/favicon.ico?v=4" />
+<script src="base.js?v=9"></script>
+</head>
+<body>
+  <!-- Экран загрузки: видно, что пульт делает при старте, а не пустая сетка -->
+  <div id="boot" aria-hidden="true">
+    <div class="boot-card">
+      <img src="icons/icon3-192.png" alt="" class="boot-logo" />
+      <div class="boot-name">Стамбул</div>
+      <div class="boot-spin"></div>
+      <div id="bootSteps">
+        <div class="bs wait" id="bs-app"><span class="bs-i">⏳</span><span class="bs-t">Загружаю пульт</span></div>
+        <div class="bs" id="bs-conn"><span class="bs-i">·</span><span class="bs-t">Связь с сервером</span></div>
+        <div class="bs" id="bs-tables"><span class="bs-i">·</span><span class="bs-t">Столы и вызовы</span></div>
+      </div>
+      <div id="bootHint" class="boot-hint"></div>
+    </div>
+  </div>
+
+  <!-- Спрайт иконок шапки. Одного штриха, красятся через currentColor —
+       поэтому сами подстраиваются под тему и под заливку плитки, чего
+       эмодзи не умеют: те оставались цветными пятнами на залитом фоне. -->
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <defs>
+      <g id="i-undo"><path d="M4 9h10a5 5 0 0 1 0 10h-4"/><path d="M8 5 4 9l4 4"/></g>
+      <g id="i-mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></g>
+      <g id="i-moon"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></g>
+      <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g>
+      <g id="i-people"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/><path d="M17 14.2A6 6 0 0 1 21 20"/></g>
+      <g id="i-bell"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.5 20a2 2 0 0 0 3 0"/></g>
+      <g id="i-bell-off"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.5 20a2 2 0 0 0 3 0"/><path d="M3 3l18 18"/></g>
+      <g id="i-buzz"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 8v8M20 8v8"/></g>
+      <g id="i-buzz-off"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M3 3l18 18"/></g>
+      <!-- Значки плиток — набор Lucide 1.28 (лицензия ISC, коммерческое
+           использование разрешено). Пути взяты из оригинала, не перерисованы. -->
+      <g id="i-foil"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/></g>
+      <g id="i-kaloud"><circle cx="12" cy="12" r="10"/><path d="M6 12c0-1.7.7-3.2 1.8-4.2"/><circle cx="12" cy="12" r="2"/><path d="M18 12c0 1.7-.7 3.2-1.8 4.2"/></g>
+      <g id="i-alarm"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/><path d="M6.38 18.7 4 21"/><path d="M17.64 18.67 20 21"/></g>
+      <g id="i-swap"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></g>
+      <g id="i-plus"><path d="M5 12h14"/><path d="M12 5v14"/></g>
+      <g id="i-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g>
+      <g id="i-check"><path d="M20 6 9 17l-5-5"/></g>
+      <g id="i-pencil"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></g>
+      <g id="i-wrench"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></g>
+      <g id="i-megaphone"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/></g>
+      <g id="i-user"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g>
+      <g id="i-printer"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></g>
+      <g id="i-flask"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></g>
+      <g id="i-ban"><circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/></g>
+      <g id="i-book"><path d="M12 5v16"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/></g>
+      <g id="i-list"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></g>
+      <g id="i-dot"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/></g>
+      <g id="i-mail"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></g>
+      <g id="i-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5"/><path d="M12 8h.01"/></g>
+      <g id="i-more"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></g>
+      <g id="i-tap"><path d="M22 14a8 8 0 0 1-8 8"/><path d="M18 11v-1a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V9a2 2 0 0 0-2-2a2 2 0 0 0-2 2v1"/><path d="M10 9.5V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v10"/><path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></g>
+      <g id="i-gear"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></g>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Стамбул</h1>
+      <span id="connState" class="conn">● …</span>
+      <!-- сколько действий ждут отправки: появляется только когда есть что отправлять -->
+      <span id="outbox" class="outbox hidden"></span>
+    </div>
+    <div class="top-actions">
+      <button id="undoBtn" class="icon-btn hidden" title="Отменить последнее действие" aria-label="Отменить"><svg class="ic" viewBox="0 0 24 24"><use href="#i-undo"/></svg></button>
+      <button id="workerBtn" class="shift-btn hidden" title="Кто сейчас работает за этим пультом"></button>
+      <button id="histBtn" class="icon-btn" title="История сообщений за смену" aria-label="Сообщения">
+        <svg class="ic" viewBox="0 0 24 24"><use href="#i-mail"/></svg>
+        <span id="histBadge" class="hist-badge hidden"></span>
+      </button>
+      <button id="shiftBtn" class="shift-btn" title="Уведомления о вызовах на это устройство"><svg class="ic" viewBox="0 0 24 24"><use href="#i-buzz-off"/></svg><span>не на смене</span></button>
+      <button id="moreBtn" class="icon-btn" title="Ещё" aria-label="Ещё" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24"><use href="#i-more"/></svg></button>
+    </div>
+
+    <!-- Редкие действия — в меню «ещё». Восемь кнопок по 44px в шапку телефона
+         не помещаются (это 408px при ширине экрана 430), а уменьшать их нельзя:
+         44 — минимум Apple HIG и Material. Сами кнопки НЕ пересоздаются, просто
+         переехали сюда, поэтому все обработчики продолжают работать. -->
+    <div id="moreMenu" class="more-menu hidden" role="menu">
+      <button id="voiceBtn" class="icon-btn hidden" title="Сказать забивку голосом" aria-label="Голос"><svg class="ic" viewBox="0 0 24 24"><use href="#i-mic"/></svg></button>
+      <button id="themeBtn" class="icon-btn" title="Светлая / тёмная тема" aria-label="Тема"><svg class="ic" viewBox="0 0 24 24"><use href="#i-moon"/></svg></button>
+      <button id="crewBtn" class="icon-btn" title="Смена и журнал" aria-label="Смена"><svg class="ic" viewBox="0 0 24 24"><use href="#i-people"/></svg></button>
+      <button id="soundBtn" class="icon-btn" title="Звук вкл/выкл" aria-label="Звук"><svg class="ic" viewBox="0 0 24 24"><use href="#i-bell"/></svg></button>
+      <button id="settingsBtn" class="icon-btn" title="Настройки" aria-label="Настройки"><svg class="ic" viewBox="0 0 24 24"><use href="#i-gear"/></svg></button>
+    </div>
+  </header>
+
+  <!-- Погода на точке — отдельной полоской под шапкой -->
+  <div id="wxBar" class="wx-bar hidden" title=""></div>
+
+  <div id="svcBanner" class="svc-banner hidden"></div>
+  <div id="shiftBanner" class="svc-banner hidden"></div>
+  <!-- сервисные сообщения смене из панели управления -->
+  <div id="noteBanner"></div>
+
+  <!-- Что сделали с телефонов: перенос стола, отметка сервиса -->
+  <section id="eventsBar" class="events-bar hidden" aria-label="События смены"></section>
+
+  <!-- Заказы забивки с телефонов официантов -->
+  <section id="ordersBar" class="orders-bar hidden" aria-label="Заказы забивки"></section>
+
+  <!-- Лента вызовов со столов -->
+  <section id="callsBar" class="calls-bar hidden" aria-label="Вызовы"></section>
+
+  <main id="grid" class="tiles" aria-label="Столы"></main>
+
+  <!-- Сетка прокручивается: подсказка о просроченном столе за пределами экрана -->
+  <button id="offscreen" class="offscreen hidden" data-to=""></button>
+
+  <!-- «Стол 12 закрыт · Отменить»: 45 секунд на откат после финального круга -->
+  <div id="undoToast" class="undo-toast hidden" role="status" aria-live="polite">
+    <span id="undoToastText"></span>
+    <button id="undoToastBtn" class="ut-do"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-undo"/></svg> Отменить</button>
+    <button id="undoToastX" class="ut-x" aria-label="Скрыть"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-x"/></svg></button>
+  </div>
+
+  <!-- История сообщений за смену: записки, ответы, переносы -->
+  <div id="histBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>Сообщения за смену</h2>
+      <div id="histBody"></div>
+      <div class="modal-actions">
+        <button id="histClose" class="btn primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ответ на записку официанта — адресно её автору -->
+  <div id="replyBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="rpTitle">Ответить</h2>
+      <p class="hint" id="rpAbout" style="margin:0 0 12px;text-align:left"></p>
+      <div class="chips" id="rpChips"></div>
+      <label class="field">
+        <span>Ответ</span>
+        <input type="text" id="rpText" maxlength="200" autocomplete="off" />
+      </label>
+      <div class="modal-actions">
+        <button id="rpCancel" class="btn ghost">Отмена</button>
+        <button id="rpSend" class="btn primary">Отправить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- «i» на плитке: что забито и на каком этапе КАЖДЫЙ кальян стола -->
+  <div id="infoBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="infTitle">Стол</h2>
+      <div id="infBody"></div>
+      <div class="modal-actions">
+        <button id="infMove" class="btn"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-swap"/></svg> Перенести стол</button>
+        <button id="infAdd" class="btn">＋ ещё кальян</button>
+        <button id="infClear" class="btn danger"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-x"/></svg> Закрыть стол</button>
+        <button id="infClose" class="btn primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Свой стол с подписью -->
+  <div id="newTable" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>Свой стол</h2>
+      <p class="hint" style="margin:0 0 12px;text-align:left">Например «2-й кальян стол 5» или «Бар». Таймер запустится сразу, после закрытия ✕ стол исчезнет.</p>
+      <label class="field">
+        <span>Название</span>
+        <input type="text" id="ntName" maxlength="24" autocomplete="off" />
+      </label>
+      <div class="modal-actions">
+        <button id="ntCancel" class="btn ghost">Отмена</button>
+        <button id="ntCreate" class="btn primary">Создать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Перенос стола -->
+  <div id="moveTable" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="mtTitle">Перенос стола</h2>
+      <p class="hint" style="margin:0 0 12px;text-align:left">Гости пересели — выберите свободный стол, таймеры переедут вместе с ними.</p>
+      <div id="mtGrid" class="mt-grid"></div>
+      <div class="modal-actions">
+        <button id="mtCancel" class="btn ghost wide">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Конструктор забивки: чем греем и какой вкус -->
+  <div id="buildBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="bdTitle">Новый кальян</h2>
+      <p class="hint" style="margin:0 0 12px;text-align:left">Отметьте, что делаете — по этим отметкам мы посчитаем,
+        сколько на самом деле греется фольга и калауд. Можно пропустить, кальян всё равно запустится.</p>
+      <div id="bdHeats" class="bd-heats">
+        <button class="btn bd-heat" data-heat="foil"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-foil"/></svg> Фольга</button>
+        <button class="btn bd-heat" data-heat="kaloud"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-kaloud"/></svg> Калауд</button>
+      </div>
+      <div id="bdMix" class="bd-mix hidden"></div>
+      <!-- Выбор бренда, если голосом назвали только вкус -->
+      <div id="bdAlts" class="bd-alts hidden"></div>
+      <div class="bd-fl-head">
+        <span class="hint" id="bdFlHint">Табак — не обязательно</span>
+        <span class="hint" id="bdMixHint" style="color:var(--ember2)"></span>
+        <span class="bd-fl-tools">
+          <button id="bdMic" class="bd-mini hidden" title="надиктовать вкус и способ"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-mic"/></svg> сказать</button>
+          <button id="bdEdit" class="bd-mini" title="убрать лишние вкусы из подсказок"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-pencil"/></svg> править список</button>
+        </span>
+      </div>
+      <input type="text" id="bdFlavor" class="bd-search" maxlength="40" autocomplete="off"
+             placeholder="Найти в каталоге или вписать своё" />
+      <div id="bdFlavors" class="bd-flavors"></div>
+      <p class="hint hidden" id="bdVoiceMsg" style="margin:8px 0 0;text-align:left"></p>
+      <div class="modal-actions">
+        <button id="bdCancel" class="btn ghost">Отмена</button>
+        <button id="bdWipe" class="btn ghost hidden">Убрать забивку</button>
+        <button id="bdSkip" class="btn">Пропустить</button>
+        <button id="bdGo" class="btn primary">Запустить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Голосовой ввод забивки (бета) -->
+  <div id="voiceBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="vcTitle">Сказать забивку</h2>
+      <p class="hint" id="vcHint" style="margin:0 0 12px;text-align:left">Например: «четвёртый стол дабл эппл на фольге,
+        шестой пломбир на калауде». Можно назвать несколько столов одной фразой.</p>
+      <div id="vcMic" class="vc-mic"><span class="vc-dot"></span><span id="vcTimer">0:00</span></div>
+      <p class="vc-heard hidden" id="vcHeard"></p>
+      <div id="vcItems" class="vc-items"></div>
+      <div class="modal-actions">
+        <button id="vcCancel" class="btn ghost">Отмена</button>
+        <button id="vcAgain" class="btn hidden">Ещё раз</button>
+        <button id="vcGo" class="btn primary">Стоп</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Заступление кальянщика за общий планшет -->
+  <div id="workerGate" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>Кто на смене?</h2>
+      <p class="hint" id="wkMsg" style="margin:0 0 12px;text-align:left">Заступаешь за пульт — введи свой ПИН.
+        Все действия со столами будут записаны на тебя. Смена сдаётся сама в 11 утра.</p>
+      <label class="field">
+        <span>Твой ПИН</span>
+        <input type="password" id="wkPin" inputmode="numeric" autocomplete="off" />
+      </label>
+      <div class="modal-actions">
+        <button id="wkOff" class="btn ghost">Сдать смену</button>
+        <button id="wkCancel" class="btn ghost">Отмена</button>
+        <button id="wkGo" class="btn primary">Заступить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ввод ключа пульта -->
+  <div id="keyGate" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>Вход в пульт</h2>
+      <p class="hint" id="keyMsg" style="margin:0 0 12px">Введите свой ПИН — он покажет, кто на смене.</p>
+      <label class="field">
+        <span>Ваш ПИН</span>
+        <input type="password" id="keyInput" inputmode="numeric" autocomplete="off" />
+      </label>
+      <div class="modal-actions">
+        <button id="keySave" class="btn primary wide">Войти</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Подтверждение закрытия стола (открывает крестик на плитке и окно «i») -->
+  <div id="clearBox" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 id="clearTitle">Закрыть стол?</h2>
+      <p class="hint" id="clearHint" style="margin:0 0 14px"></p>
+      <div class="modal-actions">
+        <button id="clearNo" class="btn">Отмена</button>
+        <button id="clearYes" class="btn danger">Закрыть стол</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Смена: кто работает, журнал, админские действия -->
+  <div id="crew" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card wide-card">
+      <h2>Смена <span id="crewWho" class="who-badge"></span></h2>
+
+      <div id="adminBox" class="hidden">
+        <div class="crew-sec">
+          <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-wrench"/></svg> Сервисный режим</h3>
+          <p class="hint" style="margin:0 0 10px;text-align:left">Пока включён — уведомления о вызовах никому не приходят
+            и пульт не пищит. Сообщение смене отправить всё равно можно.</p>
+          <label class="field switch-row"><span>Идут работы</span><input type="checkbox" id="svcOn" /></label>
+          <label class="field switch-row"><span>Ещё и не принимать вызовы гостей</span><input type="checkbox" id="svcBlock" /></label>
+          <input type="text" id="svcNote" maxlength="140" placeholder="Что чиним (увидит смена)" class="svc-note" />
+          <button id="svcSave" class="btn primary wide">Применить</button>
+          <p class="hint" id="svcMsg" style="margin:8px 0 0"></p>
+        </div>
+
+        <div class="crew-sec">
+          <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-megaphone"/></svg> Сообщение всем на смене</h3>
+          <textarea id="bcText" maxlength="300" placeholder="Например: привезли новый табак, разберите склад / сегодня закрываемся в 02:00"></textarea>
+          <div class="modal-actions" style="margin-top:0">
+            <button id="pingBtn" class="btn ghost"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-bell"/></svg> Звук вызова</button>
+            <button id="pingTimerBtn" class="btn ghost"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-alarm"/></svg> Звук таймера</button>
+            <button id="bcSend" class="btn primary">Отправить смене</button>
+          </div>
+          <p class="hint" id="bcMsg" style="margin:8px 0 0"></p>
+        </div>
+
+        <div class="crew-sec">
+          <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-user"/></svg> Сотрудники</h3>
+          <div id="staffList" class="staff-list"></div>
+          <div class="add-row">
+            <input type="text" id="stName" placeholder="Имя" maxlength="40" />
+            <input type="text" id="stPin" placeholder="ПИН (4–8 цифр)" inputmode="numeric" maxlength="8" />
+            <button id="stAdd" class="btn primary">Добавить</button>
+          </div>
+          <p class="hint" id="stMsg" style="margin:8px 0 0"></p>
+        </div>
+      </div>
+
+      <div class="crew-sec">
+        <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-dot"/></svg> Сейчас на смене</h3>
+        <div id="onShiftList" class="staff-list"></div>
+      </div>
+
+      <div class="crew-sec">
+        <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-book"/></svg> Закрытые столы <span id="histSum" class="muted"></span></h3>
+        <div id="history" class="journal"></div>
+      </div>
+
+      <div class="crew-sec">
+        <h3><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-list"/></svg> Что происходило</h3>
+        <div id="journal" class="journal"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="logoutBtn" class="btn ghost danger">Выйти из пульта</button>
+        <button id="closeCrew" class="btn primary">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Настройки -->
+  <div id="settings" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2>Настройки</h2>
+      <p class="hint" style="text-align:left;margin:0 0 8px">Круги и их длительность в минутах. 1-й круг больше остальных: в него входит приготовление и раскурка.</p>
+      <p class="hint" style="text-align:left;margin:0 0 12px;color:#ffb347">Вид и круги — общие для всех пультов заведения. Последний круг в списке — ФИНАЛЬНЫЙ: на нём двойное нажатие не начинает новый круг, а завершает кальян.</p>
+      <div id="setRounds" class="rounds-row"></div>
+      <div class="acts-row" style="display:flex;gap:8px;margin:0 0 14px">
+        <button id="rndAdd" class="btn" type="button">＋ круг</button>
+        <button id="rndDel" class="btn" type="button">✕ убрать последний</button>
+      </div>
+      <label class="field switch-row">
+        <span>Простой вид: один таймер на стол</span>
+        <input type="checkbox" id="setSimple" />
+      </label>
+      <label class="field switch-row">
+        <span>Кольца вместо цифр (новый вид)</span>
+        <input type="checkbox" id="setRings" />
+      </label>
+      <label class="field switch-row">
+        <span>Белые номера свободных столов<br>
+          <small class="hint" style="font-weight:400">На тёмной теме. Занятые столы не трогает — там номер и так тёмный на цветной заливке.</small></span>
+        <input type="checkbox" id="setWhiteNum" />
+      </label>
+      <label class="field switch-row">
+        <span>Звуковые напоминания</span>
+        <input type="checkbox" id="setSound" />
+      </label>
+      <label class="field switch-row">
+        <span>Вибрация</span>
+        <input type="checkbox" id="setVibrate" />
+      </label>
+      <!-- Голос объявляет только системные события таймера: «круг вышел» и
+           «к столу так и не подошли». Гостевые вызовы по QR — молча, писком. -->
+      <label class="field switch-row">
+        <span>Голосовые напоминания</span>
+        <input type="checkbox" id="setVoice" />
+      </label>
+      <label class="field">
+        <span>Чей голос</span>
+        <select id="setVoiceSet">
+          <option value="mix">Смешанный — как на Гринвиче</option>
+          <option value="maboy">МАБОЙ</option>
+          <option value="zhirik">Жириновский</option>
+        </select>
+      </label>
+      <p class="hint" style="margin:-4px 0 12px;text-align:left">
+        Выбор хранится на этом устройстве: на планшете может быть один голос, на телефоне другой.
+      </p>
+      <!-- Локальная проверка: звучит ТОЛЬКО здесь. Кнопки «Звук вызова» и «Звук
+           таймера» в разделе смены шлют сигнал всем на смене — это другое. -->
+      <button id="soundTestBtn" class="btn ghost wide" style="margin-bottom:12px">
+        <svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-bell"/></svg> Проверить звуки на этом устройстве
+      </button>
+      <div class="modal-actions">
+        <a href="qr.html" class="btn ghost"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-printer"/></svg> Наклейки</a>
+        <a href="test.html" class="btn ghost"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-flask"/></svg> Проверка</a>
+        <a href="bans.html" class="btn ghost"><svg class="ic ic-s" viewBox="0 0 24 24"><use href="#i-ban"/></svg> Баны</a>
+        <button id="resetAll" class="btn ghost danger">Освободить все</button>
+      </div>
+      <button id="closeSettings" class="btn primary wide" style="margin-top:var(--sp-2)">Готово</button>
+      <p class="hint">Тап по столу — пошёл отсчёт. Ещё тап — угли обновлены, новый круг. На финальном круге двойное нажатие завершает кальян, последний завершённый освобождает стол. ✕ — закрыть стол целиком.</p>
+    </div>
+  </div>
+
+  <script>
+    // если пульт не смог запуститься — показываем причину, а не белый экран
+    window.addEventListener("error", function (e) {
+      if (document.getElementById("bootErr")) return;
+      var d = document.createElement("div");
+      d.id = "bootErr";
+      d.setAttribute("style", "position:fixed;inset:0;z-index:999;background:#15100c;color:#f3e9df;" +
+        "font:15px/1.5 -apple-system,Roboto,sans-serif;padding:24px;overflow:auto");
+      d.innerHTML = "<h2 style='margin:0 0 8px'>Пульт не запустился</h2>" +
+        "<p style='color:#a08b78;margin:0 0 6px'>" + ((e && e.message) || "неизвестная ошибка") + "</p>" +
+        "<p style='color:#6b5848;font-size:12px;margin:0 0 16px'>" + ((e && e.filename) || "") + ":" + ((e && e.lineno) || "") + "</p>" +
+        "<button id='bootFix' style='padding:14px 18px;border:0;border-radius:14px;background:#ff7a18;color:#fff;font-size:16px;font-weight:700'>Сбросить кэш и перезапустить</button>" +
+        "<p style='color:#6b5848;font-size:12px;margin-top:14px'>Браузер: " + navigator.userAgent + "</p>";
+      document.body.appendChild(d);
+      document.getElementById("bootFix").onclick = function () {
+        var done = function () { location.reload(true); };
+        if (window.caches && caches.keys) {
+          caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); })
+            .then(function () {
+              if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+                return navigator.serviceWorker.getRegistrations().then(function (rs) {
+                  return Promise.all(rs.map(function (r) { return r.unregister(); })); });
+            }).then(done, done);
+        } else done();
+      };
+    });
+
+    // запрет пинч-зума (iOS игнорирует user-scalable=no) и даблтап-зума
+    document.addEventListener("gesturestart", (e) => e.preventDefault());
+    document.addEventListener("dblclick", (e) => e.preventDefault());
+  </script>
+  <script src="app.js?v=190"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Секреты и боевые данные — не в репозиторий
+config.json
+config.json.bak-*
+data/
+vapid_private.pem
+*.pem
+
+# Зависимости — переустанавливаются
+node_modules/
+
+# Бэкапы и мусор
+.backups/
+*.bak-*
+.DS_Store

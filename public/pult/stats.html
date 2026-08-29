@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Статистика · Стамбул</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --bg2: #1e1611; --card: #241a13; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --ember: #ff7a18; --ember2: #ffb347;
+    --ok: #4cc9a0; --warn: #ffb347; --danger: #ff4d4d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt); min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: calc(18px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) calc(60px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  h2 { font-size: 15px; color: var(--ember2); margin: 24px 0 10px; }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-bottom: 14px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; padding: 9px 14px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: none; color: var(--muted);
+    font-weight: 600; font-size: 13px; line-height: 1; font-family: inherit; white-space: nowrap;
+  }
+  .chip.cur { background: rgba(255,122,24,.15); border-color: rgba(255,122,24,.55); color: var(--ember2); }
+
+  .hero {
+    border-radius: 18px; padding: 20px; text-align: center; margin-bottom: 12px;
+    background: var(--card); border: 1.5px solid var(--line);
+  }
+  .hero .hv { font-size: 44px; font-weight: 800; line-height: 1.1; }
+  .hero .hk { font-size: 14px; color: var(--muted); margin-top: 2px; }
+  .hero .hs { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .hero.q-good { border-color: rgba(76,201,160,.5); } .hero.q-good .hv { color: var(--ok); }
+  .hero.q-warn { border-color: rgba(255,179,71,.5); } .hero.q-warn .hv { color: var(--warn); }
+  .hero.q-bad  { border-color: rgba(255,77,77,.55); } .hero.q-bad .hv { color: var(--danger); }
+  .hero.q-na .hv { font-size: 22px; color: var(--muted); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .cardstat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .cardstat .v { font-size: 24px; font-weight: 800; line-height: 1.15; }
+  .cardstat .v small { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .cardstat .k { color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.35; }
+  .cardstat.warn .v { color: var(--warn); }
+  .cardstat.bad .v { color: var(--danger); }
+
+  /* ГОТЧА: при align-items:flex-end колонка сжимается по содержимому, и
+     процентная высота столбика не от чего считать — все полосы схлопывались
+     в min-height:2px, блок выглядел пустым. Колонка обязана быть во всю высоту. */
+  .bars { display: flex; align-items: stretch; gap: 3px; height: 120px; padding-top: 6px; }
+  .bcol { flex: 1 1 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
+  .bcol i { display: block; width: 100%; border-radius: 4px 4px 0 0; min-height: 2px;
+    background: linear-gradient(180deg, var(--ember2), var(--ember)); }
+  .bcol b { font-size: 10px; color: var(--muted); font-weight: 500; }
+  .bcol .n { font-size: 10px; color: var(--ember2); min-height: 12px; }
+  .peak { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; font-size: 14px; }
+
+  .rowline { display: flex; align-items: center; gap: 10px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .rowline .ico { font-size: 20px; flex: 0 0 auto; }
+  .rowline .name { flex: 1 1 auto; font-size: 14px; min-width: 0; }
+  .rowline .bar { flex: 0 0 30%; height: 8px; background: var(--bg2); border-radius: 99px; overflow: hidden; }
+  .rowline .bar i { display: block; height: 100%; background: var(--ember); border-radius: 99px; }
+  .rowline .cnt { flex: 0 0 auto; font-weight: 800; font-size: 15px; min-width: 24px; text-align: right; }
+
+  .daycard { display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    color: var(--txt); font: inherit; padding: 12px 14px; margin-bottom: 8px; }
+  .daycard:active { background: rgba(255,122,24,.08); }
+  .daycard .d1 { font-weight: 800; font-size: 14px; display: flex; justify-content: space-between; }
+  .daycard .d1 .q { font-weight: 800; }
+  .daycard .d1 .q.good { color: var(--ok); } .daycard .d1 .q.warn { color: var(--warn); }
+  .daycard .d1 .q.bad { color: var(--danger); } .daycard .d1 .q.na { color: var(--muted); font-weight: 600; }
+  .daycard .d2 { color: var(--muted); font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
+
+  /* ---- линейка против факта: полоса = факт, засечка = норматив ---- */
+  .plan { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .planrow { display: grid; grid-template-columns: 58px 1fr auto; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .planrow:last-of-type { margin-bottom: 0; }
+  .planrow .rn { color: var(--muted); font-size: 12.5px; }
+  .planrow .track { position: relative; height: 16px; background: var(--bg2); border-radius: 4px; }
+  .planrow .fact { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px;
+    background: linear-gradient(90deg, var(--ember), var(--ember2)); }
+  .planrow .fact.over { background: linear-gradient(90deg, #e85d04, var(--warn)); }
+  .planrow .norm { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--muted); border-radius: 2px; }
+  .planrow .norm::after { content: ""; position: absolute; inset: -2px; }
+  .planrow .val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .planrow .val small { color: var(--muted); font-weight: 500; }
+  .planleg { color: var(--muted); font-size: 12px; margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .planleg span { display: inline-flex; align-items: center; gap: 5px; }
+  .planleg i { display: inline-block; width: 14px; height: 8px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--ember), var(--ember2)); }
+  .planleg u { display: inline-block; width: 2px; height: 12px; background: var(--muted); border-radius: 2px; }
+
+  /* ---- тренд по дням ---- */
+  .trend { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 12px 8px; }
+  .trend svg { display: block; width: 100%; height: 130px; overflow: visible; }
+  .trend .tgrid { stroke: var(--line); stroke-width: 1; }
+  .trend .tline { fill: none; stroke: var(--ember); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .trend .tdot { stroke: var(--card); stroke-width: 2; }
+  .trend .tlab { fill: var(--muted); font-size: 10px; }
+  .trend .tval { fill: var(--txt); font-size: 11px; font-weight: 700; }
+  .trend .thit { fill: transparent; cursor: pointer; }
+
+  /* ---- разрез по людям ---- */
+  .who { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
+  .who .w1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .who .wn { font-weight: 700; font-size: 14px; }
+  .who .wq { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .who .wq.good { color: var(--ok); } .who .wq.warn { color: var(--warn); }
+  .who .wq.bad { color: var(--danger); } .who .wq.na { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  .who .wbar { height: 6px; background: var(--bg2); border-radius: 99px; overflow: hidden; margin: 8px 0 6px; }
+  .who .wbar i { display: block; height: 100%; border-radius: 99px; background: var(--ok); }
+  .who .wbar i.warn { background: var(--warn); } .who .wbar i.bad { background: var(--danger); }
+  .who .w2 { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+  .who .flag { color: var(--warn); }
+
+  .hero .hjunk { font-size: 12.5px; color: var(--muted); margin-top: 8px;
+    border-top: 1px solid var(--line); padding-top: 8px; }
+  .note { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin-top: 16px; }
+  .msg { text-align: center; color: var(--muted); padding: 30px 0; }
+  .btn.back { background: none; border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+    color: var(--ember2); font-weight: 600; font-size: 14px; line-height: 1; font-family: inherit; padding: 10px 14px; margin: 4px 0 6px; }
+  .ev-hour { color: var(--muted); font-size: 11px; font-weight: 700; margin: 14px 0 6px; letter-spacing: .5px; }
+  .ev { display: flex; gap: 10px; align-items: baseline; background: var(--card);
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; font-size: 14px; }
+  .ev.amber { border-color: rgba(255,179,71,.5); } .ev.amber .ev-x { color: var(--warn); }
+  .ev.warn { border-color: rgba(255,77,77,.5); } .ev.warn .ev-x { color: #ff9b6b; }
+  .ev.good { border-color: rgba(76,201,160,.35); }
+  .ev-t { color: var(--muted); font-size: 12px; flex: 0 0 38px; font-variant-numeric: tabular-nums; }
+  .ev-who { color: var(--muted); font-size: 12px; }
+  .ev-i { flex: 0 0 auto; } .ev-x { min-width: 0; }
+  .ev-del { margin-left: auto; flex: 0 0 auto; background: transparent; border: 1px solid var(--line);
+    border-radius: 8px; color: var(--muted); font-size: 12px; padding: 3px 8px; cursor: pointer; }
+  .ev-del.arm { border-color: rgba(255,77,77,.6); color: #ff9b6b; font-weight: 700; }
+
+  #pinGate { max-width: 320px; margin: 15vh auto 0; text-align: center; }
+  #pinGate input { width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--txt); font-size: 20px; line-height: 1.4; font-family: inherit; padding: 10px 12px; text-align: center; letter-spacing: 4px; }
+  #pinGate .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; cursor: pointer; margin-top: 10px;
+    font-size: 15px; font-weight: 800; background: linear-gradient(135deg, var(--ember), #e85d04); color: #fff; }
+  .hidden { display: none !important; }
+</style>
+<script src="base.js?v=9"></script>
+</head>
+<body>
+<div id="pinGate" class="hidden">
+  <h1>Статистика</h1>
+  <p class="sub" id="pinMsg">Введите свой ПИН.</p>
+  <input type="password" id="pin" inputmode="numeric" autocomplete="off" />
+  <button class="btn" id="pinGo">Войти</button>
+</div>
+
+<div class="wrap hidden" id="page">
+  <h1>📊 Статистика · Стамбул</h1>
+  <p class="sub" id="updated">Загружаю…</p>
+  <div id="content"><p class="msg">Загружаю…</p></div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[<>&"']/g, (ch) =>
+  ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[ch]));
+const getKey = () => localStorage.getItem("serp.key") || "";
+
+/* пороги качества — в одном месте; пока рабочая гипотеза, не норматив */
+const QUALITY_LIMITS = { good: 90, warning: 75, lateMinutes: 10, criticalLateMinutes: 20 };
+
+const SEQ = [...Array(24).keys()].map((i) => (i + 11) % 24);  // операционный день: 11:00 → 03:00
+function hourRange(byHour) {
+  let hi = SEQ.length - 1 - [...SEQ].reverse().findIndex((h) => byHour[h]);
+  if (hi >= SEQ.length) hi = -1;
+  return SEQ.slice(0, Math.max(hi, SEQ.indexOf(3)) + 1);
+}
+const mins = (m) => m >= 120 ? Math.floor(m / 60) + "ч " + (m % 60) + "м" : m + " мин";
+const dshort = (k) => k.slice(8) + "." + k.slice(5, 7);
+const plural = (n, one, few, many) => {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? few : many;
+};
+const waitTxt = (s) => s < 120 ? s + " с" : Math.round(s / 60) + " мин";
+const btnOf = (d, id) => (d.buttons || []).find((b) => b.id === id) ||
+  { icon: "🔔", label: id === "master" ? "Позвать кальянщика" : id === "coals" ? "Заменить угли" : id === "other" ? "Другой вопрос" : id };
+
+let data = null;
+let period = "today";           // today | 7 | 30
+let dayOpen = null;
+
+/* ---- расчёты периода ---- */
+function periodKeys() {
+  if (!data) return [];
+  if (period === "today") return [data.today];
+  const keys = Object.keys(data.days).sort();
+  return keys.slice(-Number(period));
+}
+function sumPeriod(keys) {
+  const acc = { starts: 0, rounds: 0, late10Count: 0, late10Min: 0, late20Count: 0,
+    reminders: 0, calls: {}, byHour: {}, lateKnown: true };
+  for (const k of keys) {
+    const d = data.days[k];
+    if (!d) continue;
+    acc.starts += Number(d.starts) || 0;
+    acc.rounds += Number(d.rounds) || 0;
+    acc.reminders += Number(d.reminders) || 0;
+    if (Number.isFinite(d.late10Count)) {
+      acc.late10Count += d.late10Count;
+      acc.late10Min += Number(d.late10Min) || 0;
+      acc.late20Count += Number(d.late20Count) || 0;
+    } else if ((Number(d.rounds) || 0) > 0) acc.lateKnown = false;
+    for (const [kind, n] of Object.entries(d.calls || {})) acc.calls[kind] = (acc.calls[kind] || 0) + n;
+    for (const [h, n] of Object.entries(d.byHour || {})) acc.byHour[h] = (acc.byHour[h] || 0) + n;
+  }
+  return acc;
+}
+/* ---- разбор из хроники: мусорные круги, факт против норматива, люди ----
+   Приходит с сервера полем detail (есть только за дни с хроникой, 30 суток).
+   Медиану за период нельзя складывать из дневных — поэтому сервер отдаёт сами
+   длительности, а объединяем и считаем здесь. */
+function detailPeriod(keys) {
+  if (!data || !data.detail) return null;
+  const acc = { junk: 0, real: 0, realLate10: 0, realLate20: 0, durs: {}, plans: {}, who: {}, days: 0,
+    overs: [], acts: 0, anon: 0 };
+  for (const k of keys) {
+    const d = data.detail[k];
+    if (!d) continue;
+    acc.days++;
+    acc.junk += d.junk || 0;
+    acc.real += d.real || 0;
+    acc.realLate10 += d.realLate10 || 0;
+    acc.realLate20 += d.realLate20 || 0;
+    if (Array.isArray(d.overs)) acc.overs.push(...d.overs);
+    acc.acts += d.acts || 0;
+    acc.anon += d.anon || 0;
+    for (const [r, arr] of Object.entries(d.durs || {})) {
+      (acc.durs[r] || (acc.durs[r] = [])).push(...arr);
+      if (d.plans && d.plans[r]) acc.plans[r] = d.plans[r];
+    }
+    for (const [name, w] of Object.entries(d.who || {})) {
+      const a = acc.who[name] || (acc.who[name] = { starts: 0, rounds: 0, late10: 0, junk: 0 });
+      a.starts += w.starts || 0; a.rounds += w.rounds || 0;
+      a.late10 += w.late10 || 0; a.junk += w.junk || 0;
+    }
+  }
+  return acc.days ? acc : null;
+}
+const median = (a) => {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const quantile = (a, p) => {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.floor(s.length * p))];
+};
+/* подписываем не каждую точку, а только края и рекорды — иначе линия тонет в числах */
+function p_extreme(pts, i) {
+  const vals = pts.map((p) => p.q);
+  return pts[i].q === Math.max(...vals) || pts[i].q === Math.min(...vals);
+}
+
+/* общий процент — по сумме кругов, не среднее дневных процентов */
+const qualityOf = (rounds, late10, known) =>
+  !rounds || !known ? null : Math.round(((rounds - late10) / rounds) * 100);
+const qClass = (q) => q === null ? "na" : q >= QUALITY_LIMITS.good ? "good" : q >= QUALITY_LIMITS.warning ? "warn" : "bad";
+
+/* ---- обзор ---- */
+function render() {
+  if (!data) return;
+  const keys = periodKeys();
+  const s = sumPeriod(keys);
+  const det = detailPeriod(keys);
+  /* честный счёт: круги короче минуты — двойные тапы. Формально они всегда
+     «вовремя», поэтому в общем котле завышают процент. Считаем без них. */
+  const useDet = !!(det && det.real > 0);
+  const qRounds = useDet ? det.real : s.rounds;
+  const qLate = useDet ? det.realLate10 : s.late10Count;
+  const q = qualityOf(qRounds, qLate, useDet ? true : s.lateKnown);
+  const avgLate = s.late10Count ? Math.round(s.late10Min / s.late10Count) : null;
+  const within = Math.max(0, qRounds - qLate);
+  const ct = period === "today" ? (data.closed[data.today] || null) : null;
+
+  let html = `<div class="chips">` + [["today", "Сегодня"], ["7", "7 дней"], ["30", "30 дней"]]
+    .map(([v, n]) => `<button class="chip${period === v ? " cur" : ""}" data-period="${v}">${n}</button>`).join("") + `</div>`;
+
+  // главная карточка качества
+  if (q === null) {
+    html += `<div class="hero q-na"><div class="hv">Недостаточно данных</div>
+      <div class="hs">${s.rounds ? "по части кругов нет данных о задержках" : "круги за выбранный период ещё не завершены"}</div></div>`;
+  } else {
+    html += `<div class="hero q-${qClass(q)}"><div class="hv">${q}%</div>
+      <div class="hk">отметок в пределах ${QUALITY_LIMITS.lateMinutes} минут</div>
+      <div class="hs">${within} из ${qRounds} ${plural(qRounds, "круга", "кругов", "кругов")}</div>
+      ${useDet && det.junk ? `<div class="hjunk">${det.junk} ${plural(det.junk, "круг короче минуты", "круга короче минуты", "кругов короче минуты")}
+        — двойные тапы, в расчёт не взяты</div>` : ""}</div>`;
+  }
+
+  // основные цифры
+  html += `<div class="cards">
+    <div class="cardstat"><div class="v">${s.starts}</div><div class="k">${plural(s.starts, "кальян запущен", "кальяна запущено", "кальянов запущено")}</div></div>
+    <div class="cardstat"><div class="v">${qRounds}</div><div class="k">${plural(qRounds, "круг завершён", "круга завершено", "кругов завершено")}</div></div>
+    <div class="cardstat${qLate ? " warn" : ""}"><div class="v">${useDet || s.lateKnown ? qLate : "—"}</div><div class="k">${plural(qLate, "отметка позже 10 минут", "отметки позже 10 минут", "отметок позже 10 минут")}</div></div>
+    <div class="cardstat"><div class="v">${avgLate !== null ? avgLate + `<small> мин</small>` : "—"}</div><div class="k">средняя задержка<br>среди задержанных</div></div>
+    <div class="cardstat${s.late20Count ? " bad" : ""}"><div class="v">${s.lateKnown ? s.late20Count : "—"}</div><div class="k">${plural(s.late20Count, "существенная задержка (>20 мин)", "существенные задержки (>20 мин)", "существенных задержек (>20 мин)")}</div></div>
+    ${useDet && det.overs.length >= 3 ? (() => {
+      // процент удобен для обзора, но прячет редкие долгие ожидания —
+      // медиана показывает типичный круг, p90 — почти худший случай
+      const medS = median(det.overs), p90S = quantile(det.overs, 0.9);
+      const f = (sec) => sec < 60 ? "0" : (sec / 60).toFixed(sec < 600 ? 1 : 0);
+      return `<div class="cardstat"><div class="v">${f(medS)}<small> мин</small></div><div class="k">типичная задержка<br>(медиана всех кругов)</div></div>
+        <div class="cardstat${p90S > 600 ? " warn" : ""}"><div class="v">${f(p90S)}<small> мин</small></div><div class="k">9 из 10 кругов<br>отмечены быстрее (p90)</div></div>`;
+    })() : ""}
+    ${ct ? `<div class="cardstat"><div class="v">${ct.sessions ? mins(Math.round(ct.minutesSum / ct.sessions)) : "—"}</div><div class="k">средняя сессия стола<br>(закрыто ${ct.sessions})</div></div>` : ""}
+  </div>`;
+
+  // линейка против факта: сколько круг идёт на самом деле против норматива
+  if (useDet) {
+    const rows = [1, 2, 3, 4, 5]
+      .map((r) => {
+        const arr = det.durs[r] || [];
+        const plan = det.plans[r] || (r === 1 ? data.rounds.r1 : r === 2 ? data.rounds.r2 : data.rounds.r3);
+        return { r, n: arr.length, med: median(arr), p75: quantile(arr, 0.75), plan };
+      })
+      .filter((x) => x.n >= 3);
+    if (rows.length) {
+      const scale = Math.max(...rows.map((x) => Math.max(x.med / 60, x.plan))) * 1.15;
+      let over = 0;
+      html += `<h2>Круг на деле и по нормативу</h2><div class="plan">` + rows.map((x) => {
+        const medM = x.med / 60;
+        const diff = medM - x.plan;
+        if (diff > 1) over++;
+        return `<div class="planrow">
+          <span class="rn">круг ${x.r}</span>
+          <span class="track">
+            <i class="fact${diff > 1 ? " over" : ""}" style="width:${Math.min(100, (medM / scale) * 100)}%"></i>
+            <i class="norm" style="left:${Math.min(100, (x.plan / scale) * 100)}%"></i>
+          </span>
+          <span class="val">${medM.toFixed(1)}<small> / ${x.plan} мин</small></span>
+        </div>`;
+      }).join("") +
+        `<div class="planleg"><span><i></i>факт (медиана)</span><span><u></u>норматив</span>
+          <span>замеров: ${rows.map((x) => x.n).reduce((a, b) => a + b, 0)}</span></div></div>`;
+      const verdict = over >= 2
+        ? `Факт заметно выше норматива на ${over} ${plural(over, "круге", "кругах", "кругах")} — линейка занижена, пульт краснеет раньше времени.`
+        : `Факт держится в нормативе — линейку менять не нужно.`;
+      html += `<p class="note" style="margin-top:10px">${verdict} Медиана устойчивее среднего: один забытый стол её не сдвинет.</p>`;
+    }
+  }
+
+  // запуски по часам: график при достатке данных, иначе строка про пик
+  if (s.starts > 0) {
+    const hrs = hourRange(s.byHour);
+    if (s.starts >= 5) {
+      const maxH = Math.max(1, ...hrs.map((h) => s.byHour[h] || 0));
+      html += `<h2>Запуски кальянов по часам</h2><div class="bars">` + hrs.map((h) => {
+        const v = s.byHour[h] || 0;
+        return `<div class="bcol"><span class="n">${v || ""}</span><i style="height:${Math.round((v / maxH) * 78)}%"></i><b>${h}</b></div>`;
+      }).join("") + `</div>`;
+    } else {
+      const top = Object.entries(s.byHour).sort((a, b) => b[1] - a[1])[0];
+      if (top) html += `<h2>Запуски кальянов</h2><div class="peak">Пик запусков: ${top[0]}:00–${(+top[0] + 1) % 24}:00 · ${top[1]} ${plural(top[1], "кальян", "кальяна", "кальянов")}</div>`;
+    }
+  }
+
+  // вызовы гостей: блок скрыт, пока их нет
+  const kinds = Object.keys(s.calls);
+  const totalCalls = kinds.reduce((a, k) => a + s.calls[k], 0);
+  if (totalCalls > 0) {
+    const maxC = Math.max(...kinds.map((k) => s.calls[k]));
+    html += `<h2>Вызовы гостей · ${totalCalls}</h2>` + kinds.sort((a, b) => s.calls[b] - s.calls[a])
+      .map((k) => {
+        const b = btnOf(data, k);
+        return `<div class="rowline"><span class="ico">${esc(b.icon)}</span>
+          <span class="name">${esc(b.label)}</span>
+          <span class="bar"><i style="width:${Math.round((s.calls[k] / maxC) * 100)}%"></i></span>
+          <span class="cnt">${s.calls[k]}</span></div>`;
+      }).join("");
+  }
+
+  // кто работал: разрез появился, когда смена стала заступать своим ПИНом
+  if (useDet) {
+    const people = Object.entries(det.who)
+      .filter(([, w]) => w.rounds || w.starts)
+      .sort((a, b) => (b[1].rounds + b[1].starts) - (a[1].rounds + a[1].starts));
+    if (people.length) {
+      html += `<h2>Кто работал</h2>` + people.map(([name, w]) => {
+        const pq = w.rounds ? Math.round(((w.rounds - w.late10) / w.rounds) * 100) : null;
+        const cls = pq === null ? "na" : qClass(pq);
+        return `<div class="who">
+          <div class="w1"><span class="wn">${esc(name)}</span>
+            <span class="wq ${cls}">${pq === null ? "кругов не было" : pq + "%"}</span></div>
+          ${pq === null ? "" : `<div class="wbar"><i class="${cls === "good" ? "" : cls}" style="width:${pq}%"></i></div>`}
+          <div class="w2">${w.starts} ${plural(w.starts, "кальян", "кальяна", "кальянов")} ·
+            ${w.rounds} ${plural(w.rounds, "круг", "круга", "кругов")}${w.late10 ? ` · ${w.late10} ${plural(w.late10, "задержка", "задержки", "задержек")}` : ""}
+            ${w.junk ? `<br><span class="flag">⚠ ${w.junk} ${plural(w.junk, "двойной тап", "двойных тапа", "двойных тапов")} — круги короче минуты</span>` : ""}</div>
+        </div>`;
+      }).join("");
+      html += `<p class="note" style="margin-top:6px">Считаются только действия под своим ПИНом.
+        Пока кальянщик не заступил, всё пишется на «Планшет · стойка» и в разрез не попадает.</p>`;
+    }
+    if (det.acts >= 5) {
+      const share = Math.round((det.anon / det.acts) * 100);
+      html += `<p class="note${share > 50 ? " " : ""}" style="margin-top:${people.length ? 2 : 10}px">
+        ${share > 50 ? "⚠ " : ""}Без имени (планшет или до заступления): <b>${share}%</b>
+        действий (${det.anon} из ${det.acts})${share > 50 ? " — разрез по людям почти пуст, напомнить смене заступаться своим ПИНом" : ""}.</p>`;
+    }
+  }
+
+  // тренд качества по дням: три точки в столбик прочесть труднее, чем линию
+  {
+    const pts = Object.keys(data.days).sort()
+      .map((k) => {
+        const dd = data.detail && data.detail[k];
+        const useD = dd && dd.real > 0;
+        const rn = useD ? dd.real : (data.days[k].rounds || 0);
+        const lt = useD ? dd.realLate10 : (data.days[k].late10Count);
+        if (!rn || !Number.isFinite(lt)) return null;
+        return { k, q: Math.round(((rn - lt) / rn) * 100), rounds: rn };
+      })
+      .filter(Boolean).slice(-14);
+    if (pts.length >= 2) {
+      const W = 320, H = 100, PL = 26, PR = 8, PT = 10, PB = 18;
+      const lo = Math.max(0, Math.min(70, Math.floor((Math.min(...pts.map((p) => p.q)) - 8) / 10) * 10));
+      const x = (i) => PL + (i * (W - PL - PR)) / Math.max(1, pts.length - 1);
+      const y = (v) => PT + (1 - (v - lo) / (100 - lo)) * (H - PT - PB);
+      const grid = [100, Math.round((100 + lo) / 2), lo];
+      const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.q).toFixed(1)).join(" ");
+      const showLabel = (i) => pts.length <= 5 || i === 0 || i === pts.length - 1 ||
+        p_extreme(pts, i);
+      html += `<h2>Как меняется качество</h2><div class="trend">
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Процент отметок в пределах 10 минут по дням">
+          ${grid.map((g) => `<line class="tgrid" x1="${PL}" x2="${W - PR}" y1="${y(g).toFixed(1)}" y2="${y(g).toFixed(1)}"/>
+            <text class="tlab" x="0" y="${(y(g) + 3).toFixed(1)}">${g}%</text>`).join("")}
+          <path class="tline" d="${line}"/>
+          ${pts.map((p, i) => {
+            const c = p.q >= QUALITY_LIMITS.good ? "var(--ok)" : p.q >= QUALITY_LIMITS.warning ? "var(--warn)" : "var(--danger)";
+            return `<circle class="tdot" cx="${x(i).toFixed(1)}" cy="${y(p.q).toFixed(1)}" r="5" fill="${c}"/>
+              ${showLabel(i) ? `<text class="tval" x="${x(i).toFixed(1)}" y="${(y(p.q) - 10).toFixed(1)}" text-anchor="middle">${p.q}</text>` : ""}
+              <text class="tlab" x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle">${dshort(p.k)}</text>
+              <circle class="thit" data-day="${p.k}" cx="${x(i).toFixed(1)}" cy="${y(p.q).toFixed(1)}" r="14"/>`;
+          }).join("")}
+        </svg></div>
+        <p class="note" style="margin-top:8px">Доля отметок в пределах 10 минут. Тап по точке — хроника дня.</p>`;
+    }
+  }
+
+  // сравнение по дням — карточки, тап раскрывает хронику
+  const allDays = [...new Set([...Object.keys(data.days), ...Object.keys(data.closed)])].sort().reverse().slice(0, 10);
+  if (allDays.length) {
+    html += `<h2>По дням</h2>` + allDays.map((k) => {
+      const d = data.days[k];
+      const c = data.closed[k] || {};
+      if (!d) {
+        return `<button class="daycard" data-day="${k}">
+          <div class="d1"><span>${dshort(k)}</span><span class="q na">Неполная статистика</span></div>
+          <div class="d2">${c.sessions || 0} ${plural(c.sessions || 0, "стол закрыт", "стола закрыто", "столов закрыто")}${c.sessions ? " · ср. сессия " + mins(Math.round(c.minutesSum / c.sessions)) : ""} · до начала сбора</div>
+        </button>`;
+      }
+      /* считаем ТЕМ ЖЕ счётом, что и главная карточка с трендом: без кругов
+         короче минуты. Иначе за один день выходило два разных процента. */
+      const dd = data.detail && data.detail[k];
+      const useD = !!(dd && dd.real > 0);
+      const known = useD || Number.isFinite(d.late10Count);
+      const dRounds = useD ? dd.real : d.rounds;
+      const dLate = useD ? dd.realLate10 : (d.late10Count || 0);
+      const dq = qualityOf(dRounds, dLate, known);
+      const qtxt = dq === null ? (d.rounds ? "нет данных" : "кругов не было") : dq + "%";
+      return `<button class="daycard" data-day="${k}">
+        <div class="d1"><span>${dshort(k)}${k === data.today ? " · сегодня" : ""}</span><span class="q ${qClass(dq)}">${qtxt}</span></div>
+        <div class="d2">${d.starts} ${plural(d.starts, "кальян", "кальяна", "кальянов")} · ${dRounds} ${plural(dRounds, "круг", "круга", "кругов")}${known && dRounds ? ` · ${Math.max(0, dRounds - dLate)} в пределах 10 мин · ${dLate} ${plural(dLate, "задержка", "задержки", "задержек")}` : ""}${useD && dd.junk ? ` · ${dd.junk} ${plural(dd.junk, "двойной тап", "двойных тапа", "двойных тапов")} не в счёт` : ""}</div>
+      </button>`;
+    }).join("");
+  }
+
+  html += `<p class="note">Статистика показывает время отметок в пульте. Задержка может означать как более позднее
+    обслуживание, так и несвоевременную отметку выполненного действия. День — операционная смена с 11:00 до 03:00.
+    Проценты и задержки копятся с 02.08. Тапните день — раскроется хроника.</p>`;
+
+  $("content").innerHTML = html;
+  const now = new Date();
+  $("updated").textContent = "обновлено " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + " · само раз в минуту";
+}
+
+/* ---- хроника дня с фильтрами ---- */
+const tname = (t) => /^\d+$/.test(String(t)) ? "стол " + t : "«" + t + "»";
+const hhmm = (ts) => {
+  const d = new Date(ts);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+};
+/* для старых событий без флагов: точные секунды overS, иначе приближение по минутам */
+const overSecondsOf = (e) => Number.isFinite(e.overS) ? e.overS : (Number(e.over) || 0) * 60;
+const roundLate10 = (e) => e.late10 === true || (e.late10 === undefined && overSecondsOf(e) > QUALITY_LIMITS.lateMinutes * 60);
+const roundLate20 = (e) => e.late20 === true || (e.late20 === undefined && overSecondsOf(e) > QUALITY_LIMITS.criticalLateMinutes * 60);
+const FILTERS = [
+  ["all", "Все", (e) => e.e !== "arm"],
+  ["hookah", "Кальяны", (e) => ["start", "round", "move", "build", "stage"].includes(e.e)],
+  ["late", "Задержки", (e) => e.e === "overdue" || (e.e === "round" && roundLate10(e))],
+  ["calls", "Вызовы", (e) => ["call", "ack", "done", "spam"].includes(e.e)],
+  ["close", "Закрытия", (e) => e.e === "close"],
+  ["diag", "Диагностика", (e) => ["arm", "undo", "spam"].includes(e.e)],
+];
+let dayEvents = [];
+let dayFilter = "all";
+const isAdmin = () => { try { return (JSON.parse(localStorage.getItem("serp.me") || "{}").role) === "admin"; } catch { return false; } };
+
+/* удаление посадки: первый тап взводит («Точно убрать?»), второй отправляет.
+   Права проверяет сервер — кнопка у неадмина просто не рисуется */
+let delArm = { sid: "", until: 0 };
+async function forgetTap(btn) {
+  const sid = btn.dataset.sid;
+  if (!(delArm.sid === sid && Date.now() < delArm.until)) {
+    delArm = { sid, until: Date.now() + 3500 };
+    btn.classList.add("arm"); btn.textContent = "Точно убрать?";
+    setTimeout(() => {
+      if (delArm.sid === sid && Date.now() >= delArm.until && document.contains(btn)) {
+        btn.classList.remove("arm"); btn.textContent = "🗑";
+      }
+    }, 3700);
+    return;
+  }
+  delArm = { sid: "", until: 0 };
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const d = await (await fetch("/api/stats/forget", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Pult-Key": getKey() },
+      body: JSON.stringify({ sid }) })).json();
+    if (!d.ok) { btn.textContent = d.error || "не вышло"; btn.disabled = false; return; }
+    // хроника дня перечитывается, обзорные цифры обновляем следом
+    showDay(dayOpen);
+    try {
+      const r = await fetch("/api/stats", { headers: { "X-Pult-Key": getKey() } });
+      const dd = await r.json();
+      if (dd.ok) data = dd;
+    } catch {}
+  } catch { btn.textContent = "нет связи"; btn.disabled = false; }
+}
+
+function eventRow(ev) {
+  const t = esc(tname(ev.t));
+  let row;
+  const HEAT_TXT = { foil: "фольга", kaloud: "калауд" };
+  const bd = (e) => [e.heat ? HEAT_TXT[e.heat] : "", e.fl || ""].filter(Boolean).join(" · ");
+  if (ev.e === "start") row = { i: "🚀", txt: `${t} — запущен кальян${ev.hk > 1 ? ` (${ev.hk}-й на столе)` : ""}` +
+    (bd(ev) ? ` · ${esc(bd(ev))}` : "") };
+  else if (ev.e === "build") row = { i: "📝", txt: `${t} — забивка${ev.late ? " записана после запуска" : " поправлена"}: ${esc(bd(ev)) || "—"}` };
+  else if (ev.e === "stage") row = { i: ev.st === "ready" ? "🔥" : "🫖",
+    txt: ev.st === "ready"
+      ? `${t} — прогрелся за ${waitTxt(ev.s || 0)}${ev.heat ? ` (${HEAT_TXT[ev.heat]})` : ""}`
+      : `${t} — отдан гостю через ${waitTxt(ev.s || 0)} после розжига${Number.isFinite(ev.fromReadyS) ? ` · подача ${waitTxt(ev.fromReadyS)}` : ""}` };
+  else if (ev.e === "arm") row = { i: "🖐", txt: `${t} — первый тап${ev.r ? ` (круг ${ev.r})` : " (запуск)"} — ждёт второго` };
+  else if (ev.e === "round") {
+    const l20 = roundLate20(ev), l10 = roundLate10(ev);
+    row = { i: "🔁", txt: `${t} — замена углей после круга ${ev.r}` +
+      (ev.over ? ` · задержка отметки ${ev.over} мин` : ", в пределах таймера"),
+      warn: l20, amber: l10 && !l20 };
+  }
+  else if (ev.e === "overdue") row = { i: "⏰", txt: `${t} — таймер круга ${ev.r} вышел в просрочку`, amber: true };
+  else if (ev.e === "call") row = { i: btnOf(data, ev.k).icon, txt: `${t} — вызов «${esc(btnOf(data, ev.k).label)}»${ev.txt ? `: «${esc(ev.txt)}»` : ""}` };
+  else if (ev.e === "ack") row = { i: "🫡", txt: `${t} — вызов принят через ${waitTxt(ev.waitS || 0)}` };
+  else if (ev.e === "done") row = { i: "☑️", txt: `${t} — вызов закрыт через ${waitTxt(ev.waitS || 0)}`, good: true };
+  else if (ev.e === "spam") row = { i: "🚫", txt: `${t} — вызов помечен спамом, устройство забанено`, warn: true };
+  else if (ev.e === "move") row = { i: "⇄", txt: `${t} — гости пересели за стол ${ev.to}` };
+  else if (ev.e === "undo") row = { i: "↩️", txt: `отменено: ${esc(ev.what || "действие")}` };
+  else if (ev.e === "close") {
+    // финальный круг: завершён ОДИН кальян — посадка при этом может жить дальше
+    const oneOfMany = ev.why === "кальян убран" || ev.why === "финальный круг: кальян завершён";
+    if (ev.why === "кальян убран") row = { i: "➖", txt: `${t} — убран кальян · ${mins(ev.min)}` };
+    else if (ev.why === "финальный круг: кальян завершён")
+      row = { i: "✔️", txt: `${t} — кальян завершён на финальном круге · ${mins(ev.min)}` };
+    else if (ev.why === "финальный круг: посадка закрыта")
+      row = { i: "✅", txt: `${t} — закрыт: финальный круг пройден · ${mins(ev.min)}`, good: true };
+    else if (ev.why === "сброс всех столов") row = { i: "🧹", txt: `${t} — закрыт сбросом всех столов · ${mins(ev.min)}`, good: true };
+    else row = { i: "✅", txt: `${t} — закрыт · ${mins(ev.min)}${ev.hk > 1 ? ` · ${ev.hk} кальяна` : ""}`, good: true };
+    // ошибочную посадку админ может удалить из статистики целиком (по метке sid);
+    // если закрыт лишь один кальян из нескольких — посадка ещё живёт, её не трогаем
+    if (ev.sid && !oneOfMany && isAdmin()) row.del = ev.sid;
+  }
+  else row = { i: "·", txt: ev.e };
+  if (ev.who && ev.who !== "—") row.txt += ` <span class="ev-who">· ${esc(ev.who)}</span>`;
+  return row;
+}
+
+function renderDay() {
+  const flt = FILTERS.find(([id]) => id === dayFilter) || FILTERS[0];
+  const evs = dayEvents.filter((e) => flt[2](e));
+  let html = `<button class="btn back" id="backBtn">← Ко всем дням</button>
+    <h2>Хроника за ${dshort(dayOpen)}</h2>
+    <div class="chips">` + FILTERS.map(([id, name]) =>
+      `<button class="chip${dayFilter === id ? " cur" : ""}" data-flt="${id}">${name}</button>`).join("") + `</div>`;
+  if (!evs.length) {
+    html += `<p class="msg">${dayEvents.length ? "По этому фильтру событий нет." : dayOpen < "2026-08-02" ? "За этот день хроники нет — она копится со 2 августа." : "Пока тихо."}</p>`;
+  } else {
+    let lastHour = null;
+    html += evs.map((ev) => {
+      const row = eventRow(ev);
+      const h = new Date(ev.ts).getHours();
+      const head = h !== lastHour ? `<div class="ev-hour">${String(h).padStart(2, "0")}:00</div>` : "";
+      lastHour = h;
+      return head + `<div class="ev${row.warn ? " warn" : ""}${row.amber ? " amber" : ""}${row.good ? " good" : ""}">
+        <span class="ev-t">${hhmm(ev.ts)}</span><span class="ev-i">${row.i}</span><span class="ev-x">${row.txt}</span>${row.del ? `<button class="ev-del" data-sid="${row.del}" title="Удалить посадку из статистики">🗑</button>` : ""}</div>`;
+    }).join("");
+    html += `<p class="note">${evs.length} ${plural(evs.length, "событие", "события", "событий")}${dayFilter === "all" ? " (первые тапы двойного нажатия — в фильтре «Диагностика»)" : ""}.</p>`;
+  }
+  $("content").innerHTML = html;
+  $("backBtn").addEventListener("click", () => { dayOpen = null; dayFilter = "all"; render(); });
+  window.scrollTo(0, 0);
+}
+
+async function showDay(k) {
+  dayOpen = k; dayFilter = "all";
+  $("content").innerHTML = '<p class="msg">Загружаю хронику…</p>';
+  try {
+    const r = await fetch("/api/stats/day?d=" + k, { headers: { "X-Pult-Key": getKey() } });
+    if (r.status === 401) { showGate("Сессия истекла — введите ПИН ещё раз."); return; }
+    const d = await r.json();
+    if (!d.ok) { $("content").innerHTML = '<p class="msg">Не получилось загрузить день.</p>'; return; }
+    dayEvents = d.events;
+    renderDay();
+  } catch { $("content").innerHTML = '<p class="msg">Нет связи с сервером.</p>'; }
+}
+
+/* ---- клики: периоды, дни, фильтры ---- */
+$("content").addEventListener("click", (e) => {
+  const del = e.target.closest(".ev-del");
+  if (del) { forgetTap(del); return; }
+  const p = e.target.closest("[data-period]");
+  if (p) { period = p.dataset.period; render(); return; }
+  const f = e.target.closest("[data-flt]");
+  if (f) { dayFilter = f.dataset.flt; renderDay(); return; }
+  const day = e.target.closest("[data-day]");
+  if (day) showDay(day.dataset.day);
+});
+
+/* ---- загрузка ---- */
+async function load() {
+  if (dayOpen) return;                       // внутри хроники обзор не перерисовываем
+  const r = await fetch("/api/stats", { headers: { "X-Pult-Key": getKey() } });
+  if (r.status === 401) { showGate("Сессия истекла — введите ПИН ещё раз."); return; }
+  const d = await r.json();
+  if (d.ok) { data = d; render(); }
+}
+
+function showGate(msg) {
+  $("page").classList.add("hidden");
+  $("pinGate").classList.remove("hidden");
+  if (msg) $("pinMsg").textContent = msg;
+  $("pin").focus();
+}
+async function openPage() {
+  $("pinGate").classList.add("hidden");
+  $("page").classList.remove("hidden");
+  try { await load(); } catch { $("content").innerHTML = '<p class="msg">Нет связи с сервером.</p>'; }
+}
+$("pinGo").addEventListener("click", async () => {
+  const pin = $("pin").value.trim();
+  if (!pin) return;
+  $("pinMsg").textContent = "Проверяю…";
+  try {
+    const d = await (await fetch("/api/login", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) })).json();
+    if (!d.ok) { $("pinMsg").textContent = d.error || "Не получилось войти"; return; }
+    localStorage.setItem("serp.key", d.token);
+    localStorage.setItem("serp.me", JSON.stringify({ name: d.name, role: d.role }));
+    $("pin").value = "";
+    openPage();
+  } catch { $("pinMsg").textContent = "Нет связи с сервером"; }
+});
+$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinGo").click(); });
+
+(async () => {
+  if (!getKey()) { showGate(); return; }
+  try {
+    const r = await fetch("/api/me", { headers: { "X-Pult-Key": getKey() } });
+    if (r.status === 401) { showGate(); return; }
+    openPage();
+  } catch { showGate("Нет связи с сервером."); }
+})();
+setInterval(() => { if (!$("page").classList.contains("hidden")) load().catch(() => {}); }, 60000);
+</script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

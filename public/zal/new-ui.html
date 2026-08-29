@@ -1,0 +1,3617 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Пока нет платного сертификата, смена ставит пульт как PWA: манифест и
+     иконка нужны, чтобы он открывался с домашнего экрана как приложение. -->
+<meta name="apple-mobile-web-app-title" content="Пульт">
+<link rel="manifest" id="mf" href="manifest-pult.webmanifest">
+<link rel="apple-touch-icon" id="atIcon" href="icons/role-pult-192.png">
+<link rel="icon" id="favIcon" href="icons/role-pult-192.png">
+<script>
+/* Иконка и имя на домашнем экране — свои для каждой роли: у стойки карта
+   столов, у кальянщика пламя углей, у официанта колокольчик. Роль берём из
+   ссылки (?r=…), по которой человек ставит приложение, и запоминаем. */
+/* Классический пульт регистрировал service worker (sw.js) и складывал в кэш
+   свой index.html. Новый интерфейс service worker НЕ использует, поэтому сам
+   старый воркер с телефона не уходит: PWA у кальянщиков продолжала показывать
+   прежний пульт. Снимаем его с регистрации, чистим кэши и один раз
+   перезагружаемся. Защита от петли — флаг в sessionStorage. */
+(function () {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistrations().then(function (rs) {
+    if (!rs.length) return;
+    return Promise.all(rs.map(function (r) { return r.unregister(); }))
+      .then(function () {
+        return window.caches ? caches.keys().then(function (ks) {
+          return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+        }) : null;
+      })
+      .then(function () {
+        if (sessionStorage.getItem("pult.swPurged")) return;
+        sessionStorage.setItem("pult.swPurged", "1");
+        location.reload();
+      });
+  }).catch(function () {});
+})();
+
+(function () {
+  var q = new URLSearchParams(location.search).get("r");
+  var known = { pult: "Пульт · стойка", master: "Пульт кальянщика", waiter: "Зал · официант" };
+  var r = known[q] ? q : (localStorage.getItem("pult.newui.appicon") || "pult");
+  if (known[q]) localStorage.setItem("pult.newui.appicon", q);
+  document.getElementById("mf").href = "manifest-" + r + ".webmanifest";
+  document.getElementById("atIcon").href = "icons/role-" + r + "-192.png";
+  document.getElementById("favIcon").href = "icons/role-" + r + "-192.png";
+  var t = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (t) t.content = { pult: "Стойка", master: "Кальянщик", waiter: "Официант" }[r];
+  document.title = known[r];
+})();
+</script>
+<title>Пульт кальянщика</title>
+<style>
+/* ===== Новый вид пульта поверх БОЕВОГО API точки =====
+   Это не демо: состояние приходит из /api/calls, действия уходят в /api/table
+   с id конкретной чаши (hid). Логика на сервере не меняется — меняется только
+   то, что видит и трогает кальянщик.
+
+   Раскладка из макета: занятый стол разворачивается карточкой прямо в сетке,
+   у каждой чаши своя кнопка. Свободные — компактной сеткой ниже.  */
+:root{
+  /* Фон не чисто чёрный намеренно: на OLED прокрутка светлых плашек по чёрному
+     даёт фиолетовый шлейф, а планшет бармена висит на одном экране часами. */
+  --bg:#0a0c0e; --surface:#171a1d; --surface2:#222629; --separator:#30363a;
+  /* --dim был #6a6a70 — контраст 3.16:1 на плашке, на грани нечитаемого
+     для мелких подписей в полутьме. Стало 5.19:1. */
+  --text:#f1f4f6; --muted:#a5adb3; --dim:#858d94;
+
+  /* Роли цвета. Одна роль — один смысл, иначе цвет перестаёт что-либо значить.
+     ⚠️ Зелёный НЕ может быть цветом действия: в TINT он уже означает второй
+     круг чаши, и кнопки встали бы рядом с зелёными кальянами. */
+  --accent:#ff9f0a;   --accent-rgb:255,159,10;   /* действие и срочность */
+  --on-accent:#1a1207;
+  --late:#ff453a;     --late-rgb:255,69,58;      /* убрать, просрочка */
+  --ok:#30d158;       --ok-rgb:48,209,88;        /* готово, круг 2 */
+  --soon:#ffd60a;
+  /* Деньги НЕ красим: цена — это контент, а не кнопка. Полсотни цветных цен
+     забивают собой единственную кнопку, ради которой экран и открыт. */
+  --money:var(--text);
+  --tap:44px;
+}
+/* Межстрочный был глобальный 1.2 — любое название, ушедшее на вторую строку
+   («Бутылка игристого», комментарий гостя), слипалось. Крупному тесно и надо,
+   мелкому — нет. */
+[style*="font-size"],.lead,.hint{line-height:inherit}
+h1,h2,.tsnum b,.check .ch b{line-height:1.2}
+.barlist button .bn,.cn,.hasdet .dl .dn,.dl .dn{line-height:1.3}
+.lbl,.clbl,.bv,.cp,.hasrow .ht,.dw{line-height:1.4}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* При удержании iOS начинает выделять текст и показывает своё меню «Копировать».
+   Для строк и карточек это мешает: там наш собственный жест долгого нажатия.
+   В полях ввода выделение, наоборот, оставляем. */
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+html,body{margin:0;height:100%;-webkit-text-size-adjust:100%}
+/* Шрифт лежит рядом с пультом, а не тянется из сети: в зале интернет разный,
+   а без шрифта поедет вся вёрстка. Два подмножества, переменный, 66 КБ всего.
+   Зачем свой шрифт вообще: -apple-system давал SF на iPhone официанта и Roboto
+   на Android-планшете бармена — метрики разные, и одно и то же название
+   на одном устройстве влезало в строку, а на другом переносилось. */
+@font-face{font-family:"Inter var";src:url("inter-cyrillic.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;font-display:swap;
+  unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:"Inter var";src:url("inter-latin.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;font-display:swap;
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,
+  U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+body{background:var(--bg);color:var(--text);
+  font:400 16px/1.35 "Inter var",-apple-system,BlinkMacSystemFont,Inter,sans-serif;
+  /* Цифры табличные ВЕЗДЕ: цена, сумма, таймер и остаток обновляются раз в
+     секунду, и пропорциональные цифры дёргали ширину строки на каждом тике. */
+  font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none;
+  display:flex;flex-direction:column;height:100svh;overflow:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.hide{display:none !important}
+/* пока не заступил — только смотреть и писать сообщения */
+body.offshift .row, body.offshift .tbl, body.offshift .free, body.offshift #bottom button:not(#btnSay){
+  opacity:.5;pointer-events:none}
+/* Контейнер рабочего экрана — обычная колонка во всю высоту.
+   display:contents здесь ломался в WKWebView: шапка и списки разъезжались
+   по экрану, в приложении оставалась пустота. */
+#app{flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* вход */
+#login{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px}
+#login h1{margin:0;font-size:26px;font-weight:700;letter-spacing:-.02em;text-align:center}
+#login p{margin:0;color:var(--muted);font-size:16px;text-align:center;max-width:320px}
+#login input{width:min(320px,100%);min-height:58px;border-radius:16px;background:var(--surface);
+  border:2px solid transparent;color:var(--text);font-size:21px;text-align:center;letter-spacing:.3em;padding:8px}
+#login input:focus{outline:none;border-color:var(--accent)}
+#login button{width:min(320px,100%);min-height:58px;border-radius:16px;background:var(--accent);
+  color:var(--on-accent);font-size:16px;font-weight:700}
+#login input{text-align:center;letter-spacing:.4em;font-size:21px;font-weight:700;caret-color:transparent}
+/* Клавиатура тянется от ширины столбца, а не от жёстких пикселей: на телефоне
+   кнопки крупные, на планшете не разъезжаются. */
+.numpad{width:min(320px,100%);display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+/* Селектор с #login — иначе правило `#login button` красит цифры в оранжевый:
+   оранжевой должна остаться одна «Войти», иначе теряется, куда жать. */
+#login .numpad button{width:auto;min-height:clamp(56px,17vw,68px);border-radius:16px;
+  background:var(--surface2);color:var(--text);font-size:clamp(20px,6vw,24px);font-weight:700;
+  display:grid;place-items:center;transition:transform .1s ease,background .1s ease}
+#login .numpad button:active{transform:scale(.94);background:var(--surface)}
+#login .numpad button.back,#login .numpad button.wipe{font-size:16px;font-weight:600;color:var(--muted)}
+/* Чек. Читается с метра: номер стола крупно, количество акцентом. */
+.checks{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+.check{background:var(--surface);border:2px solid transparent;border-radius:20px;padding:14px 16px}
+.check.new{border-color:rgba(var(--accent-rgb),.55)}
+.check.done{opacity:.55}
+.check .ch{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.check .ch b{font-size:26px;font-weight:700;letter-spacing:-.02em}
+/* Чей заказ — рядом с номером стола, крупно: бармен читает чек мельком. */
+.check .ch .gst{background:rgba(var(--accent-rgb),.18);color:var(--accent);border-radius:999px;
+  padding:4px 11px;font-size:13px;font-weight:700;white-space:nowrap}
+.check .ch .gst.all{background:rgba(255,255,255,.09);color:var(--muted)}
+.check .ch .tm{color:var(--dim);font-size:13px}
+.check .ch .wait{font-size:13px;font-weight:700;border-radius:999px;padding:3px 9px}
+.check .ch .wait.calm{background:rgba(255,255,255,.06);color:var(--muted)}
+.check .ch .wait.soon{background:rgba(255,214,10,.16);color:var(--soon)}
+.check .ch .wait.late{background:rgba(var(--late-rgb),.18);color:var(--late)}
+.check .ch .sp{flex:1}
+.check .st{border-radius:999px;padding:5px 11px;font-size:13px;font-weight:700}
+.check .st.new{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.check .st.work{background:rgba(255,255,255,.1);color:var(--muted)}
+.check .st.done{background:rgba(var(--ok-rgb),.18);color:var(--ok)}
+.check .it{display:flex;align-items:center;gap:12px;margin:6px 0}
+.check .it .n{min-width:36px;color:var(--money);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.check .it .nm{flex:1;min-width:0;font-size:16px;font-weight:600}
+.check .it .pr{color:var(--muted);font-size:16px;font-weight:600;white-space:nowrap}
+.check .cm{background:rgba(var(--accent-rgb),.12);color:var(--accent);border-radius:12px;
+  padding:8px 12px;font-size:16px;font-weight:600;margin:8px 0}
+.check .cf{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.check .cf .lb{color:var(--muted);font-size:13px}
+.check .cf .sum{font-size:21px;font-weight:700}
+.check .cf .sp{flex:1}
+.check .cf button{min-height:var(--tap);border-radius:14px;padding:0 20px;font-size:16px;font-weight:700}
+.check .cf button.go{background:var(--accent);color:var(--on-accent)}
+.check .cf button.gh{background:var(--surface2);color:var(--muted)}
+.check .cf button.gx{background:none;color:var(--dim);font-weight:600;padding:0 12px}
+.check .cf button.gx.armed{background:rgba(var(--late-rgb),.16);color:var(--late)}
+.check .it .nm em{display:block;font-style:normal;font-size:13px;font-weight:600;color:var(--accent)}
+.hasdet .dl .dn em{display:block;font-style:normal;font-size:13px;font-weight:600;color:var(--accent)}
+.barnew{margin-left:auto;background:var(--accent);color:var(--on-accent);border-radius:14px;
+  min-height:40px;padding:0 16px;font-size:16px;font-weight:700}
+/* ===== Счёт стола ===== */
+.sheet.tablesheet{max-height:calc(94svh - var(--kb,0px));padding-bottom:0}
+/* ===== Вариант G: заказ растёт СВЕРХУ =====
+   Корзины как отдельного ящика больше нет. Позиция, которую только что нажали,
+   не улетает «куда-то», а появляется вверху: видно, что добавилось и кому.
+   Поэтому её не надо «раскрывать», чтобы проверить себя, и меню при этом
+   никуда не девается. */
+.ordbox{flex:0 0 auto;background:rgba(var(--accent-rgb),.09);border-radius:16px;
+  box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.3);
+  padding:8px 10px 6px;margin-bottom:8px}
+.ordbox.hide{display:none}
+.ordbox .oh{display:flex;align-items:center;gap:8px;padding:0 2px 6px}
+.ordbox .oh b{font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--accent)}
+.ordbox .oh .os{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ordbox .oh .og{min-height:32px;border-radius:10px;padding:0 10px;flex:0 0 auto;
+  background:rgba(255,255,255,.14);color:var(--text);font-size:13px;font-weight:700}
+.ordbox .orow{display:flex;align-items:center;gap:8px;padding:0 2px;min-height:48px}
+.ordbox .orow + .orow{border-top:1px solid rgba(var(--accent-rgb),.18)}
+.ordbox .on2{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
+.ordbox .on2 b{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ordbox .on2 span{font-size:11px;font-weight:700;color:var(--muted)}
+.ordbox .oq{font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap}
+.ordbox .op{font-size:16px;font-weight:700;color:var(--money);white-space:nowrap}
+.ordbox .ox{width:44px;min-height:36px;border-radius:11px;flex:0 0 auto;
+  background:rgba(var(--late-rgb),.16);color:var(--late);font-size:21px;font-weight:700}
+.ordbox .omore{display:flex;align-items:center;gap:6px;padding:8px 2px 2px;width:100%;
+  background:none;font-size:13px;color:var(--muted);text-align:left}
+.ordbox .omore i{margin-left:auto;font-style:normal;font-weight:700;color:var(--accent)}
+/* Меню строками-линиями: карточки съедали по 6 px на просвет каждая, и на экран
+   влезало 6 позиций из 54. Линия дешевле рамки. */
+#cbList.lines{gap:0}
+#cbList.lines{padding-bottom:4px}
+#cbList.lines button{background:none;border-radius:10px;padding:0 8px;min-height:56px}
+#cbList.lines button + button{box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+#cbList.lines button.incart{background:rgba(255,255,255,.08);box-shadow:none}
+#cbList.lines .bmulti{background:none;padding:8px 0 2px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+/* ⚠️ Кнопка объёма красилась в --surface, а это РОВНО фон шторки: после смены
+   палитры она стала невидимой, от позиции остались одни контуры. Раньше это
+   не было заметно, потому что .bmulti имел свою подложку surface2. */
+#cbList.lines .bsz{flex-direction:column;gap:0}
+#cbList.lines .bsz button{background:none;min-height:56px;padding:0 8px 0 18px;
+  border-radius:10px;justify-content:flex-start;gap:10px}
+#cbList.lines .bsz button + button{box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+#cbList.lines .bsz button.incart{background:rgba(255,255,255,.08);box-shadow:none}
+/* Название группы — подпись над её вариантами, а не такая же строка. */
+#cbList.lines .bmulti > .bn{margin:0 0 2px;padding:0 8px;color:var(--muted);
+  font-size:13px;font-weight:600}
+/* Категории переехали ВНИЗ, под большой палец: их переключают постоянно,
+   а тянуться к верху экрана одной рукой на ходу неудобно. */
+/* ⚠️ Класс «bottom» уже занят нижней панелью кальянщика (.bottom button
+   красит кнопки в акцент) — лента категорий из-за него стала оранжевой. */
+/* Список кончается ровно там, где начинается лента, и обрезает последнюю
+   позицию посередине. Без границы это читается как сломанная вёрстка, поэтому
+   зона категорий отделена линией, а низ списка мягко затухает. */
+#cbCats.catbar{position:static;flex:0 0 auto;margin:0;padding:10px 0 8px;
+  border-top:1px solid rgba(255,255,255,.09)}
+.tablesheet .body{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 22px),transparent)}
+/* В режиме корзины затухание не нужно: там список короткий и кончается сам. */
+.tablesheet.cartmode .body{-webkit-mask-image:none;mask-image:none}
+
+/* Раскрытая корзина ЗАМЕНЯЕТ меню, а не ложится под него. Раньше на экране
+   оставались два списка с одинаковыми строками: меню обрезалось телом шторки
+   посередине строки, ниже начиналась корзина — и они сливались в кашу.
+   Правишь заказ — видишь заказ; нужно добавить ещё — свернул корзину. */
+.tablesheet.cartmode .body{display:none}
+.tablesheet.cartmode #cartList{flex:1 1 auto;min-height:0;max-height:none}
+.cartlist .chead{display:flex;align-items:baseline;gap:8px;margin:2px 2px 10px}
+.cartlist .chead b{font-size:16px;font-weight:700;color:var(--accent)}
+.cartlist .chead span{color:var(--dim);font-size:13px}
+.tshead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+/* Шапка в одну строку: номер и подпись рядом, а не столбиком — столбик
+   съедал 50 px ради двух слов. Всё, что тут лежит, только показывает. */
+.tsnum{display:flex;align-items:baseline;gap:8px;min-width:0}
+.tsnum b{font-size:21px;font-weight:700;letter-spacing:-.02em;flex:0 0 auto}
+.tsnum span{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsfind{min-height:38px;width:44px;border-radius:12px;background:var(--surface2);
+  color:var(--muted);font-size:21px;font-weight:700;flex:0 0 auto;margin-left:auto}
+.tsfind.on{background:rgba(var(--accent-rgb),.2);color:var(--accent)}
+.tsclose{min-height:38px;border-radius:12px;padding:0 12px;
+  background:var(--surface2);color:var(--muted);font-size:13px;font-weight:600;flex:0 0 auto}
+/* Док внизу: одна полоса вместо вкладок и корзины. Всё нажимаемое лежит
+   под большим пальцем, а состав дока меняется по состоянию — пустая корзина
+   не должна занимать место кнопкой «Отправить», которой нечего отправлять. */
+.dock{display:flex;gap:8px;align-items:stretch;flex:0 0 auto;
+  padding:8px 0 calc(10px + env(safe-area-inset-bottom));background:var(--surface)}
+.dock button{min-height:56px;border-radius:15px;background:var(--surface2);
+  color:var(--text);font-size:16px;font-weight:600;padding:0 14px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.dock button span{font-size:13px;font-weight:600;color:var(--dim)}
+.dock .dbill{flex:0 0 auto}
+.dock .dbill b{font-size:16px}
+.dock .dsvc{flex:1}
+/* Корзина: сколько набрано, на сколько и КОМУ — иначе позиции уезжают
+   не тому гостю, а заметить это можно только в счёте. */
+.dock .dcart{flex:1;flex-direction:row;gap:8px;justify-content:flex-start;
+  background:rgba(var(--accent-rgb),.14);box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.45)}
+.dock .dcart .cnt{min-width:26px;height:26px;border-radius:999px;background:rgba(var(--accent-rgb),.3);
+  color:var(--accent);font-size:13px;font-weight:700;display:grid;place-items:center;flex:0 0 auto;
+  transition:transform .18s ease}
+.dock.bump .dcart .cnt{transform:scale(1.35)}
+.dock .dcart .cs{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;align-items:flex-start}
+/* Состав заказа в одну строку с многоточием: в три строки он распирал док
+   и кнопка «Отправить» переставала стоять на своём месте. */
+.dock .dcart .cs b,.dock .dcart .cs span{max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;display:block;text-align:left}
+.dock .dcart .cs b{font-size:16px;font-weight:700;color:var(--text)}
+.dock .go{flex:0 0 auto;background:var(--accent);color:var(--on-accent);font-size:16px;font-weight:700;
+  flex-direction:column;gap:1px}
+.dock .go .sendsum{font-size:11px;font-weight:700;color:var(--on-accent);opacity:.72}
+.dock .back{flex:1;color:var(--muted)}
+/* Корзина закреплена: набирая заказ, официант всегда видит, что набрал. */
+.cartlist .cgs{margin-bottom:8px}
+.cartlist .clbl{font-size:13px;font-weight:600;color:var(--dim);margin:4px 2px 6px}
+/* Комментарий ко всему заказу — одна строка под корзиной, без карточки:
+   в карточке он читался как ещё один список позиций. */
+.ctwrap{flex:0 0 auto;margin-bottom:8px}
+.ctwrap textarea{width:100%;min-height:52px;border-radius:14px;background:var(--surface);
+  border:2px solid transparent;color:var(--text);font-family:inherit;font-size:16px;
+  padding:14px;resize:none}
+.ctwrap textarea:focus{outline:none;border-color:var(--accent)}
+/* Корзина — ТЁПЛАЯ зона: то, что уже набрано и сейчас уйдёт на бар.
+   Меню остаётся нейтрально-серым. Иначе два списка с одинаковыми строками
+   читались как один сплошной, и было непонятно, где кончается одно. */
+.cartlist{flex:0 0 auto;max-height:34svh;overflow-y:auto;
+  background:rgba(var(--accent-rgb),.07);box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.25);
+  border-radius:16px;padding:10px;margin-bottom:8px;display:flex;flex-direction:column;gap:8px}
+.cartlist .cl{background:rgba(255,255,255,.05);border-radius:12px;padding:8px 10px}
+.cartlist .clr{display:flex;align-items:center;gap:8px}
+.cartlist .cn{flex:1;min-width:0;font-size:16px;font-weight:600;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.cartlist .clr button{width:38px;min-height:38px;border-radius:11px;background:var(--surface);
+  color:var(--text);font-size:21px;font-weight:700;flex:0 0 auto}
+.cartlist .cq{min-width:26px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.cartlist .cp{color:var(--muted);font-size:13px;font-weight:700;white-space:nowrap}
+/* Кому записана позиция — не мелким шрифтом сбоку, а кнопкой: её и читают,
+   и ею же исправляют, если промахнулись гостем. */
+.cartlist .clg{display:flex;align-items:center;gap:8px;margin-top:6px}
+.cartlist .clg button{min-height:38px;border-radius:10px;padding:0 12px;flex:0 0 auto;
+  background:rgba(var(--accent-rgb),.16);color:var(--accent);font-size:13px;font-weight:700}
+.cartlist .cnote{width:100%;min-height:38px;border-radius:10px;background:var(--surface);
+  border:1px solid transparent;color:var(--text);font-size:13px;padding:0 10px}
+.cartlist .cnote:focus{outline:none;border-color:var(--accent)}
+.cartbar{display:flex;align-items:center;gap:10px;flex:0 0 auto;
+  background:var(--surface2);border-radius:16px;padding:10px 10px 10px 12px;margin-bottom:8px}
+.cartbar .cnt{min-width:28px;height:28px;border-radius:999px;background:rgba(var(--accent-rgb),.22);
+  color:var(--accent);font-size:13px;font-weight:700;display:grid;place-items:center;flex:0 0 auto;
+  transition:transform .18s ease}
+.cartbar.bump .cnt{transform:scale(1.35)}
+.cartbar .cs{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.cartbar .cs b{font-size:16px;font-weight:700}
+.cartbar .cs span{color:var(--dim);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cartbar .go{min-height:var(--tap);border-radius:14px;padding:0 20px;background:var(--accent);
+  color:var(--on-accent);font-size:16px;font-weight:700;flex:0 0 auto}
+.billbox{background:var(--surface);border-radius:16px;padding:12px 14px;margin-bottom:10px}
+.billbox .bbh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.billbox .bbh b{font-size:13px;font-weight:700;color:var(--muted)}
+.billbox .bbh span{margin-left:auto;font-size:13px;color:var(--dim)}
+.hkrow{display:flex;align-items:center;gap:10px;margin:6px 0}
+.hkrow .hn{flex:1;min-width:0}
+.hkrow .hn b{display:block;font-size:16px;font-weight:600}
+.hkrow .hn span{font-size:11px;color:var(--dim)}
+.hkrow.done .hn b{color:var(--muted)}
+.hkrow .hdone{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;
+  background:rgba(var(--ok-rgb),.16);color:var(--ok);white-space:nowrap}
+.hkrow .askclose{min-height:38px;border-radius:11px;padding:0 12px;background:var(--surface2);
+  color:var(--muted);font-size:13px;font-weight:600;flex:0 0 auto;white-space:nowrap}
+.billtotal{display:flex;align-items:center;gap:10px;background:var(--surface2);
+  border-radius:16px;padding:14px;margin-bottom:10px}
+.billtotal span{color:var(--muted);font-size:13px}
+.billtotal b{margin-left:auto;font-size:21px;font-weight:700}
+.guests{margin-bottom:10px}
+/* Категорий двенадцать: в перенос они съедали пол-экрана и выталкивали
+   позиции вниз. Одна строка с прокруткой вбок — список остаётся на виду. */
+/* Лента категорий закреплена: список длинный, тело шторки прокручивается,
+   и без sticky категории уезжали вверх — переключиться можно было только
+   вернувшись наверх прокруткой. */
+#cbCats{position:sticky;top:0;z-index:2;background:var(--surface);padding-top:2px;
+  flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;margin-bottom:10px;padding-bottom:2px}
+#cbCats::-webkit-scrollbar{display:none}
+#cbCats button{flex:0 0 auto;white-space:nowrap}
+/* Список позиций занимает всё, что осталось: он главный на этой вкладке. */
+#tabOrder{display:flex;flex-direction:column;min-height:0;height:100%}
+#tabOrder .barlist{flex:1;min-height:0;max-height:none}
+.guests button.on{background:rgba(255,255,255,.14);color:var(--text);
+  box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.55)}
+.svc{display:flex;flex-direction:column;gap:10px}
+.svc button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  min-height:64px;border-radius:16px;background:var(--surface2);padding:14px 16px;text-align:left}
+.svc button b{font-size:16px;font-weight:700;color:var(--text)}
+.svc button span{font-size:13px;color:var(--dim)}
+.svc button.prim{background:var(--accent)}
+.svc button.prim b{color:var(--on-accent)}
+.svc button.prim span{color:var(--on-accent);opacity:.75}
+/* Отклик на выбор позиции. Вибрации на iPhone в браузере НЕТ вообще,
+   поэтому подтверждение обязано быть видимым: строка вспыхивает. */
+.barlist button.tapped{animation:pick .32s ease}
+@keyframes pick{
+  0%{background:rgba(var(--accent-rgb),.45)}
+  100%{background:var(--surface2)}
+}
+/* Набранное подсвечиваем светлотой: оранжевая рамка вокруг строки спорила
+   с оранжевой кнопкой «Отправить». Сигналом остаётся счётчик. */
+.barlist button.incart{background:rgba(255,255,255,.08)}
+/* Набранное убирают прямо в списке: официант промахнулся пальцем и должен
+   снять позицию там же, где нажал, а не искать её в корзине. Минус — полноценная
+   кнопка 40 px, а не значок: в него целятся не глядя. */
+.barlist .qn{font-style:normal;min-width:28px;height:28px;border-radius:999px;
+  background:rgba(var(--accent-rgb),.28);color:var(--accent);font-size:13px;font-weight:700;
+  display:grid;place-items:center;flex:0 0 auto}
+.barlist .qb{font-style:normal;min-width:40px;height:40px;border-radius:12px;
+  background:rgba(var(--late-rgb),.16);color:var(--late);font-size:21px;font-weight:700;
+  display:grid;place-items:center;flex:0 0 auto;line-height:1}
+.barlist .bsz button.incart{background:rgba(var(--accent-rgb),.16);
+  box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.5);display:flex;align-items:center;gap:8px}
+
+/* «Уже заказано» — компактной строкой: официанту важно не дублировать заказ. */
+.haslist{display:flex;flex-direction:column;gap:6px}
+.hasitem{background:var(--surface2);border-radius:12px;margin-bottom:6px;overflow:hidden}
+.hasitem.open{box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.4)}
+.hasrow{display:flex;align-items:center;gap:10px;padding:10px}
+.hasrow .hx{color:var(--dim);font-size:13px;flex:0 0 auto}
+.hasdet{padding:0 10px 10px}
+.hasdet .dl{display:flex;align-items:center;gap:10px;padding:5px 0}
+.hasdet .dl .dq{min-width:32px;color:var(--money);font-size:16px;font-weight:700}
+.hasdet .dl .dn{flex:1;min-width:0;font-size:16px;font-weight:600}
+.hasdet .dl .dp{color:var(--muted);font-size:13px;font-weight:600;white-space:nowrap}
+.hasdet .dc{background:rgba(var(--accent-rgb),.12);color:var(--accent);border-radius:10px;
+  padding:7px 10px;font-size:13px;font-weight:600;margin-top:6px}
+.hasdet .dw{color:var(--dim);font-size:13px;margin-top:8px}
+.hasdet .dl .dx{width:34px;min-height:34px;border-radius:10px;background:rgba(var(--late-rgb),.14);
+  color:var(--late);font-size:16px;font-weight:700;flex:0 0 auto}
+.hasdet .dl .dm{width:34px;min-height:34px;border-radius:10px;background:var(--surface);
+  color:var(--text);font-size:16px;font-weight:700;flex:0 0 auto}
+.hasdet .dl .dq{min-width:24px;text-align:center}
+/* Чей это заказ — правится после отправки: гости пересаживаются и передумывают. */
+.hasdet .dg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px}
+.hasdet .dg span{color:var(--dim);font-size:13px;margin-right:2px}
+.hasdet .dg button{min-height:34px;border-radius:999px;padding:0 12px;background:var(--surface);
+  color:var(--muted);font-size:13px;font-weight:600}
+.hasdet .dg button.on{background:rgba(255,255,255,.14);color:var(--text);
+  box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.5)}
+.hasdet .dcancel{width:100%;min-height:42px;border-radius:12px;margin-top:10px;
+  background:rgba(var(--late-rgb),.14);color:var(--late);font-size:13px;font-weight:700}
+.hasrow .ht{color:var(--dim);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hasrow .hi{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hasrow .hs{font-size:11px;font-weight:700;border-radius:999px;padding:3px 8px;white-space:nowrap}
+.hasrow .hs.new{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.hasrow .hs.work{background:rgba(255,255,255,.1);color:var(--muted)}
+.hasrow .hs.done{background:rgba(var(--ok-rgb),.18);color:var(--ok)}
+.hasrow .hp{color:var(--muted);font-size:13px;font-weight:700;white-space:nowrap}
+.hasfoot{display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px 10px}
+.hasfoot span{color:var(--muted);font-size:13px}
+.hasfoot b{font-size:21px;font-weight:700}
+/* Была мелкой серой кнопкой, сжатой вправо, — терялась под итогом. Закрытие
+   стола такое же по весу действие, как «Отправить», просто на другом конце
+   работы со столом. */
+.closebtn{width:100%;min-height:56px;margin-top:8px;border-radius:15px;
+  background:rgba(var(--late-rgb),.14);color:var(--late);font-size:16px;font-weight:700;
+  box-shadow:inset 0 0 0 1.5px rgba(var(--late-rgb),.35)}
+.closebtn.armed{background:var(--late);color:#fff}
+/* На карте видно, что на столе: сколько кальянов и на сколько уже набрано.
+   Кальянных таймеров и кругов здесь нет — это чужая кухня. */
+.free button .mark.plain{background:rgba(255,255,255,.08);color:var(--muted);font-size:11px;
+  font-weight:700;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.donemore{width:100%;min-height:44px;border-radius:14px;background:var(--surface);
+  color:var(--dim);font-size:13px;font-weight:600}
+.barsearch{width:100%;min-height:50px;border-radius:14px;background:var(--surface2);
+  border:2px solid transparent;color:var(--text);font-size:16px;padding:0 14px;margin-bottom:12px;
+  -webkit-appearance:none}
+.barsearch:focus{outline:none;border-color:var(--accent)}
+/* Список позиций скроллится внутри шторки: меню на полсотни строк не должно
+   выталкивать кнопку «Отправить» за экран. */
+.barlist{max-height:min(38vh,300px);overflow-y:auto;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;gap:6px;margin:0 -2px;padding:0 2px}
+.barlist button{display:flex;align-items:center;gap:10px;text-align:left;width:100%;
+  min-height:52px;border-radius:14px;background:var(--surface2);padding:8px 12px}
+.barlist button .bn{flex:1;min-width:0;color:var(--text);font-size:16px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barlist button .bv{color:var(--dim);font-size:13px;font-weight:500;white-space:nowrap}
+.barlist button .bp{color:var(--money);font-size:16px;font-weight:700;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+/* Строка с двумя объёмами: название сверху, размеры кнопками снизу. */
+.barlist .bmulti{display:flex;flex-direction:column;gap:8px;background:var(--surface2);
+  border-radius:14px;padding:10px 12px}
+.barlist .bmulti .bn{font-size:16px;font-weight:600;color:var(--text)}
+.barlist .bsz{display:flex;flex-wrap:wrap;gap:8px}
+.barlist .bsz button{flex:1 1 0;min-width:0;min-height:44px;border-radius:12px;background:var(--surface);
+  color:var(--money);font-size:16px;font-weight:700;padding:0 8px;white-space:nowrap;
+  display:flex;align-items:center;justify-content:center;gap:6px}
+/* Со счётчиком и «−» кнопка объёма переставала помещаться и уезжала на свою
+   строку — позиция раздувалась вчетверо. Ужимаем значки, а не строку. */
+.barlist .bsz .qn{min-width:22px;height:22px;font-size:13px}
+.barlist .bsz .qb{min-width:32px;height:32px;font-size:18px;border-radius:9px}
+.barlist .barempty{color:var(--dim);font-size:13px;padding:10px 2px}
+.barsum{color:var(--money);font-weight:700;margin-left:8px;font-variant-numeric:tabular-nums}
+.barcart{display:flex;flex-direction:column;gap:6px}
+.barcart .ci{display:flex;align-items:center;gap:8px;background:rgba(var(--accent-rgb),.12);
+  border-radius:14px;padding:6px 8px 6px 12px}
+.barcart .ci b{flex:1;min-width:0;font-size:16px;font-weight:600;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.barcart .ci .q{min-width:34px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.barcart .ci button{width:38px;min-height:38px;border-radius:11px;background:var(--surface2);
+  color:var(--text);font-size:21px;font-weight:700;display:grid;place-items:center}
+#loginErr{color:var(--late);font-size:13px;min-height:20px}
+
+/* шапка */
+.top{display:flex;align-items:center;gap:10px;padding:max(10px,env(safe-area-inset-top)) 16px 8px;flex:0 0 auto}
+.top h1{margin:0;font-size:clamp(17px,4vw,21px);font-weight:700;letter-spacing:-.02em;
+  white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.dot.off{background:var(--late)}
+.top .sub{color:var(--dim);font-size:13px;font-weight:500;white-space:nowrap}
+.top .sp{flex:1}
+.hbtn{min-width:40px;min-height:40px;border-radius:14px;background:var(--surface);display:grid;place-items:center;
+  color:var(--muted);font-size:16px;font-weight:600;padding:0 12px;flex:0 0 auto}
+.hbtn.on{color:var(--ok)}
+/* Кто сейчас за экраном: планшет на стойке или кальянщик с телефоном в зале. */
+/* Режим — отдельной строкой: в шапке он выдавливал название точки
+   и кнопку выхода за край экрана. */
+.moderow{padding:0 16px 12px;flex:0 0 auto}
+
+/* режим телефона: крупная кнопка забивки */
+.fab{margin:0 16px 12px;flex:0 0 auto;display:flex}
+.fab button{flex:1;min-height:62px;border-radius:18px;background:var(--accent);color:var(--on-accent);
+  font-size:21px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
+
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;z-index:20}
+.scrim.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--surface);
+  border-radius:26px 26px 0 0;border-top:1px solid rgba(255,255,255,.08);
+  padding:18px 16px calc(12px + env(safe-area-inset-bottom));display:none;
+  /* --kb — высота клавиатуры, её считает скрипт по visualViewport.
+     Без этого клавиатура накрывала поле комментария и кнопку отправки. */
+  bottom:var(--kb,0px);
+  max-height:calc(88svh - var(--kb,0px));
+  transition:bottom .18s ease,max-height .18s ease;
+  /* overflow-y:auto делает и горизонтальную ось прокручиваемой; свайп по ленте
+     категорий доезжал до края и «пробивал» прокрутку на шторку — весь экран
+     уезжал вбок, шапка обрезалась. Гасим на обоих концах: жёстко здесь и
+     overscroll-behavior на самой ленте. */
+  overflow-y:auto;overflow-x:hidden;
+  /* содержимое скроллится, а кнопка отправки остаётся на виду */
+  display:none;flex-direction:column}
+.sheet.on{display:flex}
+.sheet .body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+.sheet .acts{position:sticky;bottom:0;background:var(--surface);padding-top:12px;margin-top:4px;
+  padding-bottom:2px}
+
+/* выбранный стол: сетка сворачивается в строку, экран освобождается */
+.picked{display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:16px;
+  padding:12px 12px 12px 16px;margin-bottom:16px}
+.picked b{font-size:21px;font-weight:700}
+.picked .sp{flex:1}
+.picked button{background:rgba(255,255,255,.08);border-radius:12px;padding:0 16px;min-height:42px;
+  font-size:16px;font-weight:600;color:var(--muted)}
+/* На планшете шторка — не нижняя, а диалог по центру. Центрировать его надо
+   по ВИДИМОЙ части экрана, а не по всему: с поднятой клавиатурой он ужимался,
+   но оставался по центру окна и нижней половиной уезжал под клавиатуру —
+   поле «что забить» и кнопка «Отправить» оказывались не видны. */
+@media (min-width:820px){.sheet{left:50%;right:auto;bottom:auto;
+  top:calc((100% - var(--kb,0px)) / 2);transform:translate(-50%,-50%);
+  width:680px;border-radius:26px;border:1px solid rgba(255,255,255,.08);
+  transition:top .18s ease,max-height .18s ease}}
+.sheet h2{margin:0 0 4px;font-size:21px;font-weight:700;letter-spacing:-.02em}
+.sheet p.lead{margin:0 0 16px;color:var(--muted);font-size:13px}
+.lbl{font-size:13px;font-weight:600;color:var(--dim);margin-bottom:8px}
+.pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px;margin-bottom:16px}
+/* Высота задана явно. aspect-ratio в WebKit схлопывал ячейку занятого стола,
+   и его номер повисал между соседями — сетка выглядела рассыпанной. */
+.pickgrid button{height:58px;border-radius:14px;background:var(--surface2);
+  font-size:21px;font-weight:700;color:var(--text);
+  display:flex;align-items:center;justify-content:center;padding:0;line-height:1}
+/* Занятый стол приглушаем цветом, а не прозрачностью: ячейка должна быть видна,
+   иначе на её месте зияет дыра. */
+.pickgrid button.busy{background:rgba(255,255,255,.03);color:var(--dim);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+/* Занятый стол: номер и остаток столбиком — цвет берётся из круга. */
+.pickgrid button.busy{flex-direction:column;gap:1px;font-size:16px}
+.pickgrid button .pt{font-style:normal;font-size:11px;font-weight:700;opacity:.9;
+  font-variant-numeric:tabular-nums;letter-spacing:0}
+.pickgrid button.on{background:var(--accent);color:var(--on-accent)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chips button{background:var(--surface2);border-radius:14px;padding:12px 14px;font-size:16px;font-weight:600;min-height:46px}
+/* Выбранная категория отличается светлотой и весом. Цветной чипс вверху
+   спорил с оранжевой кнопкой внизу — глаз не понимал, что тут главное. */
+.chips button.on{background:rgba(255,255,255,.14);color:var(--text);font-weight:700;
+  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.18)}
+/* Недавние заказы: повторить прошлую забивку — частый случай, и набирать
+   её заново с клавиатуры долго. Тап подставляет текст, дальше можно править. */
+.chips.recent button{background:rgba(255,255,255,.05);color:var(--muted);font-weight:500;
+  font-size:13px;min-height:40px;padding:9px 12px;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.chips.recent button b{color:var(--text);font-weight:700;margin-right:6px}
+.sheet textarea{width:100%;min-height:74px;border-radius:16px;background:var(--surface2);border:2px solid transparent;
+  color:var(--text);font-family:inherit;font-size:16px;padding:14px;resize:none}
+.sheet textarea:focus{outline:none;border-color:var(--accent)}
+.sheet .acts{display:flex;gap:10px;margin-top:16px}
+.sheet .acts button{flex:1;min-height:58px;border-radius:16px;background:var(--surface2);color:var(--muted);font-size:16px;font-weight:700}
+.sheet .acts button.primary{flex:2;background:var(--accent);color:var(--on-accent)}
+.sheet .acts button.primary:disabled{background:var(--surface2);color:var(--dim)}
+
+/* полоса заказа */
+/* Очередь заказов: их бывает три-пять сразу, и стойка должна видеть все,
+   а не только верхний. Каждый со своей кнопкой — можно взять любой. */
+.orders{flex:0 0 auto;margin:0 16px 10px;display:flex;flex-direction:column;gap:8px}
+/* Свёрнутая очередь на телефоне: одна строка вместо списка. */
+/* Вызов гостя — красный: человек уже сидит и ждёт, это срочнее заказа. */
+.notice.call{background:var(--surface2);border-color:rgba(var(--late-rgb),.5)}
+.notice.call .num{background:rgba(var(--late-rgb),.18);color:var(--late)}
+.notice.call .take{background:var(--late);color:#fff}
+.notice.call.acked{border-color:rgba(var(--accent-rgb),.45)}
+.notice.call.acked .num{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.notice.call.acked .take{background:rgba(255,255,255,.09);color:var(--text)}
+.ord-fold{display:flex;align-items:center;gap:12px;width:100%;background:var(--surface);
+  border:1.5px solid rgba(255,255,255,.07);border-radius:14px;padding:10px 14px;min-height:52px;
+  font-size:16px;font-weight:600;color:var(--muted)}
+.ord-fold .cnt{width:30px;height:30px;flex:0 0 auto;border-radius:10px;background:rgba(var(--accent-rgb),.18);
+  color:var(--accent);display:grid;place-items:center;font-size:16px;font-weight:700}
+.ord-fold .chev{margin-left:auto;color:var(--dim);font-size:13px;font-weight:600}
+.ord-slim{display:flex;align-items:center;gap:12px;background:var(--surface);
+  border:1.5px solid rgba(255,255,255,.07);border-radius:14px;padding:7px 12px 7px 8px;min-height:48px}
+.ord-slim .num{width:34px;height:34px;flex:0 0 auto;border-radius:11px;background:rgba(255,255,255,.07);
+  display:grid;place-items:center;font-size:16px;font-weight:700;color:var(--text)}
+.ord-slim .txt{flex:1;min-width:0;font-size:16px;font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ord-slim .age{flex:0 0 auto;font-size:13px;font-weight:600;color:var(--dim)}
+.ord-slim.waiting-long{background:var(--surface2);border-color:rgba(var(--accent-rgb),.45)}
+.ord-slim.waiting-long .num{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.ord-slim.waiting-long .age{color:var(--accent)}
+.ordmore{align-self:flex-start;background:none;color:var(--dim);font-size:13px;font-weight:600;
+  padding:4px 2px;min-height:32px}
+/* Свежий заказ не кричит: он и так наверху. Оранжевым выделяем только те,
+   что ждут дольше пяти минут — их пропускать нельзя. */
+.notice{margin:0;display:flex;align-items:center;gap:12px;background:var(--surface);
+  border:1.5px solid rgba(255,255,255,.08);border-radius:18px;padding:10px 10px 10px 14px;flex:0 0 auto}
+.notice.waiting-long{background:var(--surface2);border-color:rgba(var(--accent-rgb),.5)}
+.notice .num{width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.07);
+  display:grid;place-items:center;color:var(--text);font-weight:700;font-size:21px;flex:0 0 auto}
+.notice.waiting-long .num{background:rgba(var(--accent-rgb),.18);color:var(--accent)}
+.notice .txt{flex:1;min-width:0}
+.notice .txt b{display:block;font-size:16px}
+.notice .txt span{display:block;color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notice .take{background:rgba(255,255,255,.09);color:var(--text);font-weight:700;border-radius:13px;padding:0 18px;min-height:var(--tap)}
+.notice.waiting-long .take{background:var(--accent);color:var(--on-accent)}
+.notice .wait{color:var(--dim);font-size:13px;font-weight:600;padding:0 10px;white-space:nowrap}
+
+/* Входящие сообщения смены: приходят с телефона кальянщика на планшет.
+   Держим их на виду, пока не отметят прочитанными — иначе теряются. */
+.msgs{flex:0 0 auto;margin:0 16px 10px;display:flex;flex-direction:column;gap:8px}
+.msg{display:flex;align-items:center;gap:12px;background:var(--surface2);
+  border:1.5px solid rgba(255,255,255,.12);border-radius:16px;padding:10px 10px 10px 14px}
+.msg .ic{width:34px;height:34px;border-radius:12px;background:rgba(255,255,255,.08);
+  display:grid;place-items:center;flex:0 0 auto;font-size:16px}
+.msg .t{flex:1;min-width:0}
+.msg .t b{display:block;font-size:16px;font-weight:600}
+.msg .t span{display:block;color:var(--dim);font-size:13px}
+.msg button{background:rgba(255,255,255,.08);border-radius:12px;padding:0 16px;min-height:var(--tap);
+  font-size:13px;font-weight:600;color:var(--muted);flex:0 0 auto}
+/* Карточка деталей по долгому нажатию: что забито, когда запущен,
+   кто заказал и кто принял — всё, чего не помещается в строку. */
+.info{display:flex;flex-direction:column;gap:2px}
+.info .r{display:flex;gap:12px;padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.06)}
+.info .r:last-child{border-bottom:0}
+.info .k{width:150px;flex:0 0 auto;color:var(--dim);font-size:13px}
+.info .v{flex:1;min-width:0;font-size:16px;font-weight:500}
+.msgmore{align-self:flex-start;background:none;color:var(--dim);font-size:13px;font-weight:600;
+  padding:4px 2px;min-height:32px}
+
+.banner{margin:0 16px 10px;border-radius:16px;padding:12px 14px;font-size:13px;font-weight:600;flex:0 0 auto}
+.banner.shift{background:rgba(var(--late-rgb),.16);border:1.5px solid rgba(var(--late-rgb),.5);color:var(--text);
+  display:flex;align-items:center;gap:12px}
+.banner.shift button{margin-left:auto;background:var(--accent);color:var(--on-accent);border-radius:12px;
+  padding:0 16px;min-height:var(--tap);font-weight:700}
+.feedrest{text-align:center;color:var(--dim);font-size:13px;padding:12px 8px 4px}
+.banner.stuck{background:rgba(var(--late-rgb),.2);border:1.5px solid rgba(var(--late-rgb),.65);color:var(--text);padding:10px 12px}
+.stuckrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stuckrow + .stuckrow{margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
+.stuckrow button{margin-left:auto;background:var(--accent);color:var(--on-accent);border-radius:12px;
+  padding:0 14px;min-height:var(--tap);font-weight:700;white-space:nowrap}
+.stuckrow button:disabled{opacity:.5}
+.stuckrow button.ghost{background:rgba(255,255,255,.12);color:var(--text);margin-left:0}
+.mvhint{color:var(--dim);font-size:13px;font-weight:500;font-style:normal}
+
+/* Шапка ленты. Без переноса «В работе» вставало в два слова столбиком, сводка
+   сжималась в узкую колонку, а «По номеру» ломалось пополам. Переносим группу
+   фильтров целиком, а сводку обрезаем многоточием — на планшете всё это
+   по-прежнему помещается в одну строку. */
+.hd{display:flex;align-items:center;gap:10px;padding:2px 16px 8px;flex:0 0 auto;flex-wrap:wrap}
+.hd b{font-size:16px;font-weight:700;flex:0 0 auto;white-space:nowrap}
+.hd span{color:var(--dim);font-size:13px}
+.hd #busyInfo{flex:1 1 90px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd .sp2{flex:1 1 0;min-width:0}
+.hd .filters{flex:0 0 auto}
+.hd .filters button{white-space:nowrap}
+.hd .sp2{flex:1}
+/* При сорока столах список длинный: фильтр отвечает на вопрос «что сейчас»,
+   не заставляя прокручивать весь зал. */
+.filters{display:flex;gap:3px;background:var(--surface);border-radius:11px;padding:3px}
+.filters button{border-radius:9px;padding:6px 11px;font-size:13px;font-weight:600;color:var(--muted);min-height:32px}
+.filters button.on{background:var(--surface2);color:var(--text)}
+.scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px calc(16px + env(safe-area-inset-bottom))}
+
+/* занятые столы */
+/* Карточки не растягиваются под самую высокую в ряду: стол с одной чашей
+   больше не занимает место втроём — align-items:start вместо stretch. */
+/* 330 px давали ВСЕГО ТРИ колонки на 11-дюймовом айпаде: плитка растягивалась
+   до 379 px, хотя строке чаши хватает ~240, а зал в 20 столов уходил на две
+   высоты экрана. 255 даёт 4 колонки на 11" и 5 на 13" — при той же читаемости.
+
+   Укладка колоночная, а не сеточная. В grid ряд равен по высоте самой высокой
+   плитке: стол с тремя чашами растягивал ряд, и под соседями с одной чашей
+   зияла дыра в полторы сотни пикселей. Колонки укладывают плитки впритык,
+   а порядок остаётся по срочности — сверху вниз по первой колонке. */
+.busy{columns:255px;column-gap:10px;margin-bottom:16px}
+.busy .tbl{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:10px;width:100%}
+/* Внутренности плитки считаем от ЕЁ ширины: одна и та же разметка живёт
+   и в 255 px, и в 440 px. */
+.tbl{background:var(--surface);border:1.5px solid transparent;border-radius:18px;padding:7px 7px 7px 10px;
+  container-type:inline-size}
+/* Шапка занимала 59 px из 121 у стола с одной чашей — половину плитки
+   на номер и «+». Ужимаем: работа важнее заголовка. */
+.tbl .th{display:flex;align-items:center;gap:7px;margin:0 2px 6px}
+.tbl .th .n{font-size:clamp(19px,7.5cqw,24px);font-weight:700;letter-spacing:-.02em}
+.tbl .th .cnt{background:rgba(255,255,255,.1);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;color:var(--muted)}
+.tbl .th .sp{flex:1}
+/* самое срочное время прямо в шапке карточки — стол читается одним взглядом */
+.tbl .th .worst{font-size:clamp(14px,5.6cqw,17px);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+/* стол ждёт забивки: заказ уже принят, но кальян ещё не поставлен */
+.tbl .th .ord{background:rgba(var(--accent-rgb),.2);color:var(--accent);border-radius:999px;
+  padding:2px 9px;font-size:11px;font-weight:700}
+.tbl .th .add{width:27px;height:27px;border-radius:9px;background:rgba(255,255,255,.06);
+  display:grid;place-items:center;color:var(--muted);font-size:16px;line-height:1}
+.hk{display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.05);border-radius:14px;
+  padding:5px 6px 5px 9px;margin-top:5px}
+.hk:first-of-type{margin-top:0}
+.hk .d{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.hk .i{flex:1;min-width:0}
+.hk .t{font-size:clamp(16px,6.6cqw,19px);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hk .r{font-size:13px;color:var(--dim);font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hk .act{min-width:clamp(66px,26cqw,84px);min-height:var(--tap);border-radius:12px;background:var(--accent);
+  color:var(--on-accent);font-size:13px;font-weight:700;display:grid;place-items:center;transition:transform .12s ease}
+.hk .act:active{transform:scale(.96)}
+.hk .act.fin{background:none;border:1.5px solid rgba(var(--late-rgb),.8);color:var(--late)}
+.hk .act.armed{background:var(--soon);color:#1a1607}
+.hk .close{width:clamp(38px,15cqw,var(--tap));min-height:var(--tap);border-radius:12px;background:rgba(255,255,255,.06);
+  color:var(--dim);font-size:21px;font-weight:600;display:grid;place-items:center;flex:0 0 auto}
+.hk .close.armed{background:rgba(var(--late-rgb),.22);color:var(--late);box-shadow:inset 0 0 0 1.5px rgba(var(--late-rgb),.75)}
+
+/* свободные */
+/* Плитки свободных столов — крупнее: по ним попадают пальцем на бегу,
+   а число столов доходит до сорока, мелкая сетка читается плохо. */
+.free{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.free button{background:var(--surface);border-radius:18px;min-height:84px;color:var(--text);
+  font-size:26px;font-weight:700;letter-spacing:-.02em;transition:transform .12s ease;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px}
+.free button:active{transform:scale(.95)}
+.free button.waiting{background:linear-gradient(rgba(var(--accent-rgb),.16),rgba(var(--accent-rgb),.16)),var(--surface);
+  box-shadow:inset 0 0 0 1.5px rgba(var(--accent-rgb),.55);display:flex;flex-direction:column;gap:3px;color:var(--text)}
+.free button.wbusy{background:var(--surface2)}
+.free button .mark{font-style:normal}
+.free button.waiting .mark{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);
+  background:rgba(var(--accent-rgb),.18);border-radius:999px;padding:1px 7px}
+.empty{color:var(--dim);font-size:13px;padding:6px 0 14px}
+
+/* ===== телефон: строка на кальян вместо карточки =====
+   Карточка стола занимала ~130 px при одной чаше — на телефоне это две-три
+   позиции на экран. Строка держится в 64 px, и смена видит вдвое больше работы. */
+.rows{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.row{display:flex;align-items:center;gap:10px;border-radius:16px;border:1.5px solid transparent;
+  padding:8px 8px 8px 0;background:var(--surface)}
+.row .bar{width:5px;align-self:stretch;border-radius:4px;flex:0 0 auto}
+.row .who{width:120px;flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding-left:12px}
+.row .who .wl{display:flex;align-items:center;gap:6px}
+.row .who b{font-size:16px;font-weight:700;letter-spacing:-.02em}
+.row .who small{font-size:11px;font-weight:500;color:var(--dim)}
+.row .who .mark{font-style:normal;font-size:11px;font-weight:700;color:var(--accent);
+  background:rgba(var(--accent-rgb),.2);border-radius:999px;padding:1px 6px}
+/* Таймер и круг — колонкой: в одну строку круг не помещался и обрезался. */
+.row .tmw{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.row .tm{font-size:21px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+/* Полоса из делений: сколько кругов позади, какой идёт и сколько осталось
+   до конца кальяна. Цифры дублируют её словами ниже. */
+.segs{display:flex;gap:4px;margin:5px 0 4px}
+.segs i{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;display:block}
+.segs i.cur{background:rgba(255,255,255,.12)}
+.segs i.cur b{display:block;height:100%;border-radius:3px;transition:width .9s linear}
+.hk .segs{margin:4px 0 3px}
+/* Спокойный кальян: без заливки и без яркой кнопки — он не просит внимания.
+   Кнопка остаётся крупной тап-целью, но перестаёт светиться. */
+.row.u-calm, .tbl.u-calm{background:var(--surface);border-color:rgba(255,255,255,.08)}
+.act.b-calm, .hk .act.b-calm{background:rgba(255,255,255,.09);color:var(--text)}
+.act.b-warm, .hk .act.b-warm{background:var(--accent);color:var(--on-accent)}
+.act.b-hot,  .hk .act.b-hot{background:var(--late);color:#fff}
+.row.u-calm .bar{opacity:.5}
+.who2{font-style:normal;color:var(--muted);font-weight:600}
+.row .rd{font-size:13px;font-weight:500;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .act{width:86px;height:48px;flex:0 0 auto;border-radius:13px;background:var(--accent);
+  color:var(--on-accent);font-size:16px;font-weight:700;display:grid;place-items:center}
+.row .act.fin{background:none;border:1.5px solid rgba(var(--late-rgb),.8);color:var(--late)}
+.row .act.armed{background:var(--soon);color:#1a1607}
+/* взведённая строка подсвечивается целиком — видно, что следующий тап сработает */
+.row.armed{box-shadow:inset 0 0 0 2px var(--soon)}
+.row.done, .hk.done{box-shadow:inset 0 0 0 2px var(--ok);transition:box-shadow .15s ease}
+.hk.armed{box-shadow:inset 0 0 0 2px var(--soon)}
+.row .x{width:48px;height:48px;flex:0 0 auto;border-radius:13px;background:rgba(255,255,255,.06);
+  color:var(--dim);font-size:21px;display:grid;place-items:center}
+/* Колонки строки считаем от ЕЁ ширины, а не фиксированными числами: на 402 px
+   столбец «стол» 120 px и кнопка 86 px не оставляли таймеру места, и «-03:36»
+   уезжало под кнопку. Значения ниже сходятся к прежним, как только строка
+   становится шире, — на планшете ничего не меняется. Браузер без cqw
+   отбрасывает clamp целиком и остаётся на объявлениях выше. */
+.row{container-type:inline-size}
+.row .who{width:clamp(84px,28cqw,120px)}
+.row .tm{font-size:clamp(17px,5.6cqw,23px)}
+.row .act{width:clamp(70px,22cqw,86px)}
+.row .x{width:clamp(40px,12cqw,48px)}
+.row .x.armed{background:rgba(var(--late-rgb),.22);color:var(--late);box-shadow:inset 0 0 0 1.5px rgba(var(--late-rgb),.75)}
+
+/* кнопка забивки закреплена внизу — до неё дотягиваются большим пальцем */
+.bottom{flex:0 0 auto;padding:10px 16px calc(20px + env(safe-area-inset-bottom));background:var(--bg);}
+body.pwa .bottom{padding-bottom:calc(28px + env(safe-area-inset-bottom))}
+.bottom{
+  display:flex;gap:10px}
+.bottom button{flex:1;min-height:60px;border-radius:18px;background:var(--accent);color:var(--on-accent);
+  font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px}
+/* Второстепенные кнопки не должны ужимать главную: на 320 px «Забить стол»
+   схлопывалась до 72 px, уже своих же соседей. Даём ей вес и разрешаем
+   спутникам сжиматься. */
+.bottom button.ghost{flex:0 1 auto;background:var(--surface);color:var(--text);padding:0 14px;
+  font-size:16px;white-space:nowrap;min-width:0}
+.bottom button:not(.ghost){flex:2 1 auto;min-width:0}
+
+/* сколько заказ уже ждёт */
+.notice .meta{display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap}
+.notice .txt{min-width:0}
+/* Значок по содержимому: во flex-колонке он растягивался на всю ширину
+   и превращался в полосу через весь экран. */
+.notice .age{align-self:flex-start;flex:0 0 auto;background:rgba(255,255,255,.08);color:var(--muted);
+  border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700}
+.notice.waiting-long .age{background:rgba(var(--accent-rgb),.2);color:var(--accent)}
+.notice .when{color:var(--dim);font-size:13px;font-weight:500}
+
+.toast{position:fixed;left:16px;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:30;
+  background:var(--surface2);border:1.5px solid rgba(255,255,255,.12);border-radius:18px;
+  padding:13px 16px;display:none;align-items:center;gap:12px;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.toast.on{display:flex}
+.toast.bad{border-color:rgba(var(--late-rgb),.6)}
+.toast b{font-size:16px}
+.toast span{color:var(--muted);font-size:13px}
+.toast button{margin-left:auto;background:rgba(255,255,255,.1);border-radius:12px;padding:0 16px;
+  min-height:40px;font-size:13px;font-weight:700;color:var(--text);flex:0 0 auto}
+@media (min-width:820px){.toast{left:auto;right:24px;width:440px}}
+</style>
+</head>
+<body>
+
+<!-- вход -->
+<div id="login">
+  <h1 id="loginVenue">Пульт</h1>
+  <p>Введите свой ПИН — он покажет, кто на смене.</p>
+  <!-- Системная клавиатура на планшете съедала пол-экрана и прыгала при
+       появлении. Своя цифровая: крупные кнопки под палец, ничего не всплывает.
+       Поле остаётся в разметке (readonly + inputmode=none) — на нём держится
+       вся прежняя логика входа, а системная клавиатура по тапу не открывается. -->
+  <input id="pin" type="password" inputmode="none" readonly autocomplete="off" placeholder="ПИН">
+  <div class="numpad" id="numpad">
+    <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+    <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+    <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+    <button class="wipe" data-clear="1">Стереть</button>
+    <button data-d="0">0</button>
+    <button class="back" data-back="1" aria-label="Удалить цифру">⌫</button>
+  </div>
+  <button id="doLogin">Войти</button>
+  <div id="loginErr"></div>
+</div>
+
+<!-- рабочий экран -->
+<div id="app" class="hide">
+  <header class="top">
+    <span class="dot" id="conn"></span>
+    <h1 id="venue">Пульт</h1>
+    <span class="sub" id="meta"></span>
+    <span class="sp"></span>
+    <button class="hbtn" id="moreBtn">···</button>
+  </header>
+
+  <div class="moderow">
+  </div>
+
+  <div id="moveBanner" class="banner stuck hide"></div>
+  <div id="stuckBanner" class="banner stuck hide"></div>
+  <div id="shiftBanner" class="banner shift hide">
+    Вы не на смене — вести столы нельзя.
+    <button id="shiftGo">Заступить</button>
+  </div>
+
+  <div id="calls" class="orders hide"></div>
+  <div id="orders" class="orders hide"></div>
+
+  <div class="msgs hide" id="msgs"></div>
+
+  <!-- Барный экран: планшет заменяет чековый принтер, поэтому заказ показан
+       чеком — стол крупно, позиции с количеством и ценой, итог и состояние. -->
+  <div class="hd hide" id="checksHd"><b>Заказы</b><span id="checksInfo">—</span>
+</div>
+  <div class="checks hide" id="checks"></div>
+
+  <div class="hd" id="busyHd"><b>В работе</b><span id="busyInfo">—</span>
+    <span class="sp2"></span>
+    <span class="filters" id="filters">
+      <button data-f="urgent" class="on">Срочные</button>
+      <button data-f="all">Все</button>
+      <button data-f="num">По номеру</button>
+    </span>
+  </div>
+  <div class="scroll">
+    <div class="rows hide" id="rows"></div>
+    <div class="busy" id="busy"></div>
+    <div class="hd" id="freeHd" style="padding-left:0"><b>Свободные</b><span>нажмите номер, чтобы запустить кальян</span></div>
+    <div class="free" id="free"></div>
+  </div>
+  <div class="bottom hide" id="bottom">
+    <button id="btnFill">＋ Забить стол</button>
+    <!-- Комментарий на бар: кальянщик у стола, барный планшет — отдельный экран. -->
+    <button id="btnBar" class="ghost">На бар</button>
+    <button id="btnSay" class="ghost">Стойке</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrimMore"></div>
+<div class="sheet" id="menu">
+  <h2>Ещё</h2>
+  <p class="lead" id="menuWho">—</p>
+  <div class="acts" style="flex-direction:column">
+    <button id="soundBtn" style="width:100%">Звук: включён</button>
+    <button id="shiftBtn" style="width:100%">Сдать смену</button>
+    <button id="exitBtn" style="width:100%">Выйти из пульта</button>
+    <button id="menuClose" class="primary" style="width:100%">Закрыть</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrimCall"></div>
+<!-- Стол — точка входа бармена. Тап по столу открывает его счёт: что уже
+     заказано, и меню, чтобы дозаказать. Отдельной кнопки «заказ на бар» нет —
+     бармен думает столами, а не формами. -->
+<!-- Счёт стола: три вкладки внизу под большой палец, корзина закреплена. -->
+<div class="sheet tablesheet" id="callSheet">
+  <div class="tshead">
+    <div class="tsnum"><b id="callTitle">Стол</b><span id="callLead">—</span></div>
+    <button id="cbFind" class="tsfind" aria-label="Поиск по меню">⌕</button>
+    <button id="callCancel" class="tsclose">Закрыть</button>
+  </div>
+  <!-- Заказ растёт сверху и виден всегда: две последние позиции, дальше
+       «и ещё N». Это блок для ЧТЕНИЯ — нажимать надо меню и категории внизу. -->
+  <div class="ordbox hide" id="ordBox"></div>
+  <div class="body">
+    <div id="tabOrder">
+      <!-- Поиск набирают редко, а 50 px он занимал всегда — открывается
+           кнопкой ⌕ в шапке. -->
+      <input id="cbSearch" class="barsearch hide" type="search" inputmode="search"
+             autocomplete="off" placeholder="Поиск — латте, негрони…">
+      <div class="barlist lines" id="cbList"></div>
+    </div>
+    <div id="tabBill" class="hide">
+      <div class="chips guests" id="callGuests"></div>
+      <div id="callHk" class="billbox hide">
+        <div class="bbh"><b>Кальяны</b><span id="callHkSum">ведёт кальянщик</span></div>
+        <div id="callHkList"></div>
+      </div>
+      <div id="callHas" class="billbox hide">
+        <div class="bbh"><b>Бар</b><span id="callBarSum">—</span></div>
+        <div class="haslist" id="callHasList"></div>
+      </div>
+      <div class="billtotal"><span>Итого по столу</span><b id="callTotal">0 ₽</b></div>
+      <button id="callClose" class="closebtn hide">Гости ушли — закрыть стол</button>
+    </div>
+    <div id="tabSvc" class="hide">
+      <div class="svc" id="callSvc">
+        <button id="callMaster" class="prim"><b>Позвать кальянщика</b><span>придёт к столу</span></button>
+        <button id="callCoals"><b>Заменить угли</b><span>кальянщик увидит сразу</span></button>
+        <button id="callMove"><b>Пересадить стол</b><span>гости меняют место</span></button>
+        <button id="callOther"><b>Написать кальянщику</b><span>своими словами</span></button>
+      </div>
+      <div id="callMoveWrap" class="hide">
+        <div class="lbl" style="margin-top:14px">Куда пересадить</div>
+        <div class="pickgrid" id="callMovePick"></div>
+      </div>
+      <div id="callOtherWrap" class="hide">
+        <div class="lbl" style="margin-top:14px" id="callTextLbl">Что передать кальянщику</div>
+        <textarea id="callMsg" placeholder="например: гость просит потише"></textarea>
+        <div class="chips" id="callChips"></div>
+        <div class="acts"><button id="callBack">Назад</button>
+          <button id="callMsgSend" class="primary">Передать</button></div>
+      </div>
+    </div>
+  </div>
+  <!-- Раскрытая корзина: гости, количество и комментарий у каждой позиции.
+       «Без сахара» относится к кофе, а не ко всему заказу. Свёрнутая корзина
+       не занимает ни пикселя — её показывает строка дока. -->
+  <div class="chips catbar" id="cbCats"></div>
+  <div class="cartlist hide" id="cartList"></div>
+  <div class="ctwrap hide" id="callTextWrap">
+    <textarea id="callText" placeholder="Комментарий ко всему заказу — например: всё сразу"></textarea>
+  </div>
+  <!-- Док: одна полоса вместо вкладок и полосы корзины. Состав меняется по
+       состоянию — см. renderDock(). -->
+  <div class="dock" id="dock">
+    <button id="dockBack" class="back hide">‹ К заказу</button>
+    <button id="dockBill" class="dbill"><b>Счёт</b><span id="dockSum">0 ₽</span></button>
+    <button id="dockSvc" class="dsvc">Сервис</button>
+    <button id="dockCart" class="dcart hide">
+      <span class="cnt" id="cartCnt">0</span>
+      <span class="cs"><b id="cartSum">0 ₽</b><span id="cartWhat">—</span></span>
+    </button>
+    <button id="callSend" class="go hide">Отправить</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrimInfo"></div>
+<div class="sheet" id="infoSheet">
+  <h2 id="infoTitle">Стол</h2>
+  <p class="lead" id="infoLead"></p>
+  <div class="body">
+    <div class="info" id="infoBody"></div>
+    <div id="moveWrap" class="hide">
+      <div class="lbl" style="margin-top:16px">Куда пересадить</div>
+      <div class="pickgrid" id="movePick"></div>
+    </div>
+  </div>
+  <div class="acts" style="flex-wrap:wrap">
+    <button id="infoMove">Пересадить стол</button>
+    <button id="infoFinish">Закрыть чашу</button>
+    <button id="infoClear">Закрыть весь стол</button>
+    <button id="infoClose" class="primary" style="flex-basis:100%">Готово</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrimSay"></div>
+<div class="sheet" id="saySheet">
+  <h2 id="sayTitle">Сообщение на планшет</h2>
+  <p class="lead" id="sayLead">Прилетит на планшет стойки — звонить и бегать не нужно.</p>
+  <div class="body">
+    <div id="sayTableWrap" class="hide">
+      <div class="lbl">Какому столу</div>
+      <div class="pickgrid" id="sayTable"></div>
+      <!-- Меню бара: поиск по названию, если знаешь, и категории, если нет. -->
+      <div class="lbl" style="margin-top:14px">Что в заказ</div>
+      <input id="barSearch" class="barsearch" type="search" inputmode="search"
+             autocomplete="off" placeholder="Поиск по названию — латте, негрони…">
+      <div class="chips" id="barCats"></div>
+      <div class="barlist" id="barList"></div>
+      <div id="barCartWrap" class="hide">
+        <div class="lbl" style="margin-top:14px">Заказ<span id="barSum" class="barsum"></span></div>
+        <div class="barcart" id="barCart"></div>
+      </div>
+    </div>
+    <div id="sayFreqWrap" class="hide">
+      <div class="lbl">Часто отправляете</div>
+      <div class="chips" id="sayFreq"></div>
+    </div>
+    <div class="lbl">Быстрые фразы</div>
+    <div class="chips" id="sayChips"></div>
+    <div class="lbl">Комментарий, если нужен</div>
+    <textarea id="sayText" placeholder="например: на 12 столе просят счёт"></textarea>
+  </div>
+  <div class="acts">
+    <button id="sayCancel">Отмена</button>
+    <button id="saySend" class="primary">Отправить</button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <h2 id="shTitle">Забить стол</h2>
+  <p class="lead" id="shLead">Выберите стол — потом отметите, что забить.</p>
+  <div class="body">
+    <div class="picked hide" id="picked">
+      <b id="pickedNum">Стол —</b><span class="sp"></span>
+      <button id="pickAgain">Другой стол</button>
+    </div>
+    <div id="pickWrap">
+      <div class="lbl">Стол</div>
+      <div class="pickgrid" id="pick"></div>
+    </div>
+    <div id="whatWrap" class="hide">
+      <!-- Свой текст выше всего: он точнее любых заготовок, и место под него
+           не должно уезжать вниз за списком недавних заказов. -->
+      <div class="lbl">Что забить</div>
+      <textarea id="note" placeholder="например: двойное яблоко, лёд, покрепче"></textarea>
+      <div class="lbl" style="margin-top:14px">Быстрые вкусы</div>
+      <div class="chips" id="chips"></div>
+      <div id="freqWrap" class="hide">
+        <div class="lbl">Часто отправляете</div>
+        <div class="chips" id="freq"></div>
+      </div>
+      <div id="recentWrap" class="hide">
+        <div class="lbl" style="margin-top:14px">Повторить недавнее</div>
+        <div class="chips recent" id="recent"></div>
+      </div>
+    </div>
+  </div>
+  <div class="acts">
+    <button id="shCancel">Отмена</button>
+    <button id="shSend" class="primary" disabled>Отправить на планшет</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"><b id="toastB"></b><span id="toastS"></span>
+  <button id="toastUndo" class="hide">Вернуть</button></div>
+
+<script>
+"use strict";
+/* ---------- связь с точкой ----------
+   Ключ сессии выдаёт /api/login и он же идёт в заголовке x-pult-key —
+   ровно так, как это делает боевой пульт. Никакой своей логики на клиенте:
+   круги, заказы и смены считает сервер. */
+const KEY = "pult.newui.key";
+let key = localStorage.getItem(KEY) || "";
+let tables = {}, orders = [], allOrders = [], rounds = [25, 15, 15], onShift = false, myShift = false;
+let calls = [];                                  // вызовы со столов от официанта
+const recentTouch = {};                          // когда я сам трогал стол
+const recentActs = {};                           // кто последним трогал стол
+const seenActs = new Set();                      // уже показанные чужие действия
+/* Пересадка — единственное действие кальянщика, которое стойке нужно ДОДЕЛАТЬ:
+   касса привязана к номеру стола, и пробитый бар сам за гостями не переедет.
+   Тост тут не годится — он гаснет сам. Поэтому копим пересадки отдельно и
+   держим строку, пока стойка не нажмёт «Перенёс». */
+const ACKM_KEY = "pult.newui.ackMoves";
+let ackedMoves = new Set(JSON.parse(localStorage.getItem(ACKM_KEY) || "[]"));
+let moves = [];
+const ackMove = (id) => {
+  ackedMoves.add(id);
+  // храним последние 60 — иначе ключ пухнет всю смену
+  localStorage.setItem(ACKM_KEY, JSON.stringify([...ackedMoves].slice(-60)));
+  moves = moves.filter(m => m.id !== id);
+};
+let actsReady = false;                           // первый опрос не сыпем тостами
+let listFilter = localStorage.getItem("pult.newui.filter") || "urgent";
+let canUndo = false;                             // сервер помнит последнее действие смены
+let msgs = [];                                   // входящие сообщения смены
+let barOrders = [];                              // чеки бара: приходят с сервера со статусом
+/* Планшет бара — принтер чеков: заказы на нём не забивают, забивают в телефоне.
+   Объявление функцией, а не стрелкой: используется выше по файлу. */
+function isBarPrinter() { return mode === "waiter" && window.innerWidth >= 820; }
+let barReady = false;                            // первый опрос не шумит уведомлениями
+let hkDone = [];                                 // закрытые кальяны: из счёта не исчезают
+// «1 круг», «2 круга», «5 кругов» — иначе смена читает как машинный вывод
+const plural = (n, a, b, c) => {
+  const m = Math.abs(n) % 100, d = m % 10;
+  return m > 10 && m < 20 ? c : d === 1 ? a : d >= 2 && d <= 4 ? b : c;
+};
+let msgsOpen = false;
+let ordersOpen = false;
+let openOrder = null;                            // какой заказ раскрыт
+const SEEN_KEY = "pult.newui.seenMsgs";
+let seenMsgs = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]"));
+let venueName = "Пульт", tablesCount = 0, lastOk = 0;
+let stuck = [];                                  // заказ принят, а стол не запустился
+/* Список отсортирован по срочности, поэтому обслуженная чаша сразу уезжает
+   вниз, а соседние строки подпрыгивают под палец — легко ткнуть не туда.
+   После своего действия держим прежний порядок 2,5 секунды: всё, что уже было
+   на экране, остаётся на своих местах, новое падает в конец. Потом один
+   предсказуемый пересорт. */
+const ORDER_HOLD = 2500;
+let orderFreeze = 0;
+let lastFeedOrder = [];                          // hid'ы чаш в прежнем порядке
+let lastTableOrder = [];                         // номера столов в прежнем порядке
+let freezeTimer = null;
+function holdOrder() {
+  orderFreeze = Date.now() + ORDER_HOLD;
+  clearTimeout(freezeTimer);
+  // по истечении — один пересорт, иначе порядок застынет до следующей правки
+  freezeTimer = setTimeout(() => render(true), ORDER_HOLD + 120);
+}
+/* Сортировка с оглядкой на замороженный порядок: знакомое остаётся на месте,
+   незнакомое уходит в конец, а внутри «незнакомого» — по срочности. */
+function keepOrder(list, keyOf, frozen) {
+  if (Date.now() >= orderFreeze || !frozen.length) return list;
+  const pos = new Map(frozen.map((k, i) => [k, i]));
+  return list.slice().sort((a, b) => {
+    const pa = pos.has(keyOf(a)) ? pos.get(keyOf(a)) : 1e9;
+    const pb = pos.has(keyOf(b)) ? pos.get(keyOf(b)) : 1e9;
+    return pa - pb;
+  });
+}
+const armed = {};              // подсветка при первом тапе
+let lastTap = { key: "", at: 0 };   // для распознавания двойного нажатия
+
+const $ = (id) => document.getElementById(id);
+/* Круги считает сервер, а телефон в зале запросто врёт по часам. С чужим
+   временем спокойная чаша покажется просроченной, лента отсортируется не так,
+   и кальянщик уйдёт не к тому столу. Поправку берём из заголовка Date каждого
+   ответа: отдельного поля в API для этого не нужно. */
+let skew = 0;
+const nowMs = () => Date.now() + skew;
+const api = async (url, opts = {}) => {
+  const r = await fetch(url, {
+    ...opts,
+    cache: "no-store",
+    headers: { "content-type": "application/json", "x-pult-key": key, ...(opts.headers || {}) },
+  });
+  const d = Date.parse(r.headers.get("date") || "");
+  // разница меньше двух секунд — это сеть, а не расхождение часов
+  if (d) { const off = d - Date.now(); skew = Math.abs(off) > 2000 ? off : 0; }
+  return r;
+};
+const opId = () => Math.random().toString(36).slice(2, 12);
+/* Текст заказа, забивки и сообщений приходит от людей и уходит в innerHTML.
+   Без экранирования заказ из зала мог выполнить скрипт в пульте и забрать
+   ключ смены из localStorage. */
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const mmss = (sec) => {
+  const neg = sec < 0, s = Math.abs(Math.round(sec));
+  return (neg ? "-" : "") + String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+};
+let toastTimer = null;
+/* undoable: рядом с сообщением появляется «Вернуть» на 6 секунд.
+   Закрыл двойным тапом не ту чашу — есть чем откатить, а не разводить руками. */
+function toast(b, s, bad, undoable) {
+  $("toastB").textContent = b; $("toastS").textContent = s || "";
+  $("toast").classList.toggle("bad", !!bad);
+  // сервер помнит только СВОИ последние действия: без них кнопка врёт
+  $("toastUndo").classList.toggle("hide", !(undoable && canUndo));
+  $("toast").classList.add("on");
+  clearTimeout(toastTimer);
+  // в шумном зале 3 секунды на чтение причины ошибки не хватает
+  toastTimer = setTimeout(() => $("toast").classList.remove("on"),
+    undoable ? 6000 : bad ? 6000 : 3200);
+}
+$("toastUndo").onclick = async () => {
+  $("toast").classList.remove("on");
+  try {
+    const r = await api("/api/undo", { method: "POST", body: JSON.stringify({}) });
+    const d = await r.json();
+    if (d.ok) { if (d.tables) tables = d.tables; toast("Действие отменено"); }
+    else toast("Нечего отменять", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+  poll();
+};
+
+// ---------- вход ----------
+async function login() {
+  const pin = $("pin").value.trim();
+  if (!pin) return;
+  $("loginErr").textContent = "";
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pin }) });
+    const d = await r.json();
+    if (!d.ok) { $("loginErr").textContent = d.error || "Не вышло войти"; return; }
+    key = d.key || d.token || d.session || "";
+    if (!key) { $("loginErr").textContent = "Сервер не вернул ключ сессии"; return; }
+    localStorage.setItem(KEY, key);
+    await loadMe();
+    $("login").classList.add("hide");
+    $("app").classList.remove("hide");
+    applyMode();
+    poll();
+  } catch (e) { $("loginErr").textContent = "Точка не отвечает"; }
+}
+$("doLogin").onclick = login;
+$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+
+/* Своя цифровая клавиатура. Поле readonly, поэтому системная не всплывает;
+   значение пишем сами. ПИНы у нас разной длины (4–9 цифр), автовхода по длине
+   быть не может — заходим кнопкой. */
+const PIN_MAX = 9;
+$("numpad").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const f = $("pin");
+  if (b.dataset.clear) f.value = "";
+  else if (b.dataset.back) f.value = f.value.slice(0, -1);
+  else if (b.dataset.d && f.value.length < PIN_MAX) f.value += b.dataset.d;
+  $("loginErr").textContent = "";                 // начал набирать — прошлая ошибка не нужна
+  if (navigator.vibrate) navigator.vibrate(8);
+});
+/* Планшет на стойке часто с физической клавиатурой — с неё тоже должно работать. */
+document.addEventListener("keydown", (e) => {
+  if ($("login").classList.contains("hide")) return;
+  const f = $("pin");
+  if (/^[0-9]$/.test(e.key)) { if (f.value.length < PIN_MAX) f.value += e.key; $("loginErr").textContent = ""; }
+  else if (e.key === "Backspace") { f.value = f.value.slice(0, -1); e.preventDefault(); }
+});
+
+$("soundBtn") && ($("soundBtn").onclick = () => {
+  mutedSound = !mutedSound;
+  localStorage.setItem("pult.newui.mute", mutedSound ? "1" : "0");
+  $("soundBtn").textContent = "Звук: " + (mutedSound ? "выключен" : "включён");
+  if (!mutedSound) beep(880, 150);
+});
+
+$("moreBtn").onclick = () => {
+  $("menuWho").textContent = (myShift ? "Вы на смене" : "Вы не на смене") + " · " + venueName;
+  $("shiftBtn").textContent = myShift ? "Сдать смену" : "Заступить на смену";
+  $("soundBtn").textContent = "Звук: " + (mutedSound ? "выключен" : "включён");
+  $("scrimMore").classList.add("on"); $("menu").classList.add("on");
+};
+const closeMenu = () => { $("scrimMore").classList.remove("on"); $("menu").classList.remove("on"); };
+$("menuClose").onclick = closeMenu;
+$("scrimMore").onclick = closeMenu;
+
+$("exitBtn").onclick = () => {
+  closeMenu();
+  localStorage.removeItem(KEY); key = "";
+  $("app").classList.add("hide"); $("login").classList.remove("hide");
+};
+
+/* Роль решает, что человек видит. Официанту не нужны круги и кнопки «угли» —
+   ему нужна карта столов и две кнопки: позвать кальянщика и попросить сервис. */
+let myRole = localStorage.getItem("pult.newui.role") || "";
+async function loadMe() {
+  try {
+    const d = await (await api("/api/me")).json();
+    if (d && d.ok) {
+      myRole = d.role || "";
+      localStorage.setItem("pult.newui.role", myRole);
+      mode = modeForRole(myRole);
+      applyAppIdentity(myRole);
+      maybeOfferInstall();
+    }
+  } catch (e) {}
+}
+
+/* Кто вошёл — то и приложение. ПИН определяет и роль, и вид на домашнем
+   экране: у официанта колокольчик, у кальянщика пламя, у стойки карта столов.
+   Ссылку с ?r= оставили как запасной путь, но сама она больше не нужна. */
+function applyAppIdentity(role) {
+  const map = {
+    waiter: { key: "waiter", title: "Зал · официант", short: "Официант" },
+    master: { key: "master", title: "Пульт кальянщика", short: "Кальянщик" },
+    admin:  { key: "pult",   title: "Пульт · стойка", short: "Стойка" },
+    device: { key: "pult",   title: "Пульт · стойка", short: "Стойка" },
+  };
+  const it = map[role] || map.admin;
+  localStorage.setItem("pult.newui.appicon", it.key);
+  const mf = document.getElementById("mf");
+  if (mf) mf.href = "manifest-" + it.key + ".webmanifest";
+  const at = document.getElementById("atIcon");
+  if (at) at.href = "icons/role-" + it.key + "-192.png";
+  const fav = document.getElementById("favIcon");
+  if (fav) fav.href = "icons/role-" + it.key + "-192.png";
+  const t = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (t) t.content = it.short;
+  document.title = it.title;
+}
+
+// ---------- опрос состояния ----------
+/* Опрос идёт раз в 3 с, а рукопожатие на этом канале иногда занимает
+   до 10 с (см. диагностику связи 28.08). Если официант снял позицию, поле
+   ушёл фоновый опрос — ответ на СВОЙ запрос мог прийти РАНЬШЕ, а устаревший
+   фоновый опрос, отправленный до правки, доехать ПОЗЖЕ и затереть свежие
+   данные старыми: снятая позиция «оживала» после выхода со стола и входа
+   обратно. Лечится счётчиком: применяем только самый новый ответ. */
+let pollSeq = 0;
+async function poll() {
+  if (!key) return;
+  const mySeq = ++pollSeq;
+  try {
+    const r = await api("/api/calls");
+    if (mySeq !== pollSeq) return;   // пока ждали ответ, ушёл более новый опрос
+    if (r.status === 401 || r.status === 403) {
+      localStorage.removeItem(KEY); key = "";
+      $("app").classList.add("hide"); $("login").classList.remove("hide");
+      $("loginErr").textContent = "Сессия закончилась — войдите заново";
+      return;
+    }
+    const d = await r.json();
+    if (d.tables) tables = d.tables;
+    /* Держим и новые, и принятые: на полосу идут только новые, а принятые
+       остаются меткой на столе — иначе кальянщик нажал «Принял», заказ пропал
+       с экрана, а забить его всё ещё нужно. */
+    /* Метка на столе — про работу, которую ещё предстоит сделать.
+       Новый заказ висит, пока его не примут; принятый — не дольше 15 минут:
+       дальше это не подсказка, а мусор на экране (по столу либо уже забили,
+       либо про заказ забыли, и напоминать плиткой бесполезно). */
+    const TAKEN_TTL = 15 * 60 * 1000;
+    allOrders = (d.orders || []).filter(o =>
+      !o.status || o.status === "new" ||
+      (o.status === "taken" && nowMs() - (o.takenTs || o.ts || 0) < TAKEN_TTL));
+    orders = allOrders.filter(o => !o.status || o.status === "new");
+    if (d.view && Array.isArray(d.view.rs)) rounds = d.view.rs;
+    /* Сообщения от смены. Сервер уже прячет здесь собственное эхо, поэтому
+       на планшете видно то, что прислал кальянщик, и наоборот. */
+    /* Чужие действия по столам: если коллега только что менял угли, об этом
+       должно быть видно — иначе двое подходят к одному столу. */
+    for (const e of d.events || []) {
+      if (e.kind && e.kind !== "msg" && e.about) {
+        const tbl = String(e.about).match(/\d+/);
+        if (tbl) recentActs[tbl[0]] = { who: e.who || "коллега", ts: e.ts };
+      }
+      /* Что сделал коллега — коротким тостом на стойке: пересадил, закрыл,
+         поменял угли. Иначе стол молча уезжает и стойка не понимает, почему. */
+      if (e.kind === "move" && !ackedMoves.has(e.id)) {
+        seenActs.add(e.id);
+        if (!moves.find(m => m.id === e.id)) moves.push({ id: e.id, text: e.text || "", who: e.who || "", ts: e.ts });
+        continue;
+      }
+      if (e.kind && e.kind !== "msg" && !seenActs.has(e.id)) {
+        seenActs.add(e.id);
+        if (actsReady && e.text) toast(e.text, e.who || "", false);
+      }
+      if (e.kind !== "msg" || seenMsgs.has(e.id)) continue;
+      if (!msgs.find(m => m.id === e.id)) msgs.unshift(e);
+    }
+    /* Обрезаем только то, что уже прочитано: иначе пятое сообщение подряд
+       вытесняло непрочитанное первое, и просьба из зала пропадала. */
+    if (msgs.length > 8) msgs = msgs.filter(m => !seenMsgs.has(m.id)).slice(0, 8);
+    /* На телефоне официанта лента чеков не нужна: он не должен видеть
+       собственные заказы как уведомления. Сообщаем ровно об одном событии —
+       заказ готов, можно забирать. */
+    const wasBar = new Map(barOrders.map(o => [o.id, o.status]));
+    barOrders = Array.isArray(d.bar) ? d.bar : [];
+    hkDone = Array.isArray(d.hkDone) ? d.hkDone : [];
+    if (barReady) for (const o of barOrders) {
+      if (o.status === "done" && wasBar.get(o.id) && wasBar.get(o.id) !== "done" && !isBarPrinter()) {
+        const what = (o.items || []).map(i => (i.n > 1 ? i.n + "× " : "") + i.name).join(", ");
+        toast("Заказ готов", `Стол ${o.table} · ${what.slice(0, 50)}`);
+        if (navigator.vibrate) navigator.vibrate([16, 60, 16]);
+      }
+    }
+    barReady = true;
+    calls = (d.calls || []).filter(c => c.status !== "done");
+    if ("canUndo" in d) canUndo = !!d.canUndo;
+    if (typeof d.youOnShift === "boolean") onShift = d.youOnShift;
+    if (typeof d.myShift === "boolean") myShift = d.myShift;
+    lastOk = Date.now();
+    if (!actsReady) setTimeout(() => { actsReady = true; }, 1200);
+    soundCheck();
+    render();
+  } catch (e) { /* связь моргнула — покажем это точкой в шапке */ }
+}
+setInterval(poll, 3000);
+setInterval(() => render(), 1000);   // тикают цифры, разметка не трогается
+
+// ---------- действия ----------
+/* Ключ операции живёт до подтверждённого ответа. Если ответ потерялся и
+   работник нажал ещё раз, уходит ТОТ ЖЕ ключ — сервер распознаёт повтор и
+   не прибавляет круг второй раз (иначе гость получал угли на 15 минут раньше). */
+const pendingOps = new Map();
+async function act(n, action, hid) {
+  const opKey = `${n}:${action}:${hid || ""}`;
+  if (!pendingOps.has(opKey)) pendingOps.set(opKey, opId());
+  const op = pendingOps.get(opKey);
+  try {
+    const r = await api("/api/table", { method: "POST",
+      body: JSON.stringify({ n, action, hid: hid || "", op }) });
+    const d = await r.json();
+    pendingOps.delete(opKey);                    // ответ получен — ключ больше не нужен
+    if (!d.ok) { toast("Не получилось", d.error || "", true); return; }
+    /* Отклик на действие: короткая вибрация и вспышка строки. Без него
+       непонятно, засчиталось нажатие или нет — особенно когда экран
+       обновляется не мгновенно. */
+    if (navigator.vibrate) navigator.vibrate(action === "tap" ? 18 : [12, 40, 12]);
+    recentTouch[String(n)] = Date.now();
+    holdOrder();                                 // не пересортировывать под пальцем
+    flash(hid);
+    if (d.tables) { tables = d.tables; render(); }
+    /* Сервер положил действие в стек отмены прямо сейчас, но поле canUndo
+       приедет только со следующим опросом. Без этого «Вернуть» не показывалось
+       ровно в ту секунду, когда оно нужно, — сразу после закрытия чаши. */
+    if (action === "finish" || action === "removeHookah") { canUndo = true; toast("Чаша закрыта", "", false, true); }
+    poll();
+  } catch (e) {
+    // ключ НЕ удаляем: повтор уйдёт с ним же и сервер поймёт, что это то же действие
+    toast("Нет связи — нажмите ещё раз", "Повтор не прибавит лишний круг", true);
+  }
+}
+
+$("shiftGo").onclick = $("shiftBtn").onclick = async () => {
+  closeMenu();
+  try {
+    const r = await api("/api/shift", { method: "POST", body: JSON.stringify({ on: !myShift }) });
+    const d = await r.json();
+    const wasOnShift = myShift;                     // myShift ещё старый — берём его до опроса
+    if (d.ok) { toast(wasOnShift ? "Смена сдана" : "Вы на смене"); poll(); }
+    else toast("Не вышло", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+};
+
+/* «В работу» делает два шага сразу: закрепляет заказ за принявшим и ставит
+   кальян на стол с этой забивкой. Раньше кнопка только помечала заказ — на
+   планшете не появлялось ничего, и было непонятно, взяли его в работу или нет.
+   Если стол уже занят, добавляем ему чашу, а не крутим круг существующей. */
+async function takeOrder(id) {
+  const o = orders.find(x => x.id === id) || orders[0];
+  if (!o) return;
+  const num = +o.table;
+  const backup = orders.slice();
+  orders = orders.filter(x => x.id !== o.id);
+  render();
+  try {
+    /* Раньше ответ на приём вообще не проверялся: при ошибке заказ исчезал
+       с экрана, а кальян всё равно ставился. Теперь без подтверждения приёма
+       второй шаг не делаем и возвращаем заказ на экран. */
+    const takeRes = await api("/api/order/act", { method: "POST", body: JSON.stringify({ id: o.id, act: "take" }) });
+    const takeData = await takeRes.json();
+    if (!takeData.ok) {
+      orders = backup; render();
+      toast("Заказ не принят", takeData.error || "", true);
+      return;
+    }
+
+    const busy = tables[String(num)] && (tables[String(num)].hookahs || []).length;
+    const r = await api("/api/table", { method: "POST", body: JSON.stringify({
+      n: num, action: busy ? "add" : "tap",
+      build: o.text ? { flavor: String(o.text).slice(0, 60) } : undefined,
+      op: opId(),
+    }) });
+    const d = await r.json();
+    if (d.ok) {
+      if (d.tables) tables = d.tables;
+      holdOrder();                               // новый стол не должен расшвырять список
+      rememberPhrase("order", o.text);
+      toast("Кальян в работе", `Стол ${num}${o.text ? " · " + o.text : ""}`);
+    } else {
+      /* Заказ сервер уже принял — вернуть его в очередь нечем. Но и потерять
+         нельзя: кальян не заведён, а с экрана всё исчезло. Держим его отдельной
+         красной строкой, пока стол не запустят вручную. */
+      stuck.push({ id: o.id, n: num, text: o.text || "", why: d.error || "" });
+      toast("Заказ принят, но стол не запустился", d.error || "", true);
+    }
+  } catch (e) {
+    // связь моргнула — возвращаем заказ на экран, иначе про него забудут
+    orders = backup; render();
+    toast("Нет связи — заказ вернули", "Попробуйте ещё раз", true);
+  }
+  poll();
+}
+
+/* Звук. В шумном зале красная строка и баннер просто не попадают в поле
+   зрения — особенно если планшет стоит боком. Пищим один раз на событие:
+   новый заказ и переход чаши в просрочку. Тон разный, чтобы различать на слух. */
+let audioCtx = null;
+const beep = (freq, ms) => {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + ms / 1000);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + ms / 1000);
+  } catch (e) {}
+};
+let mutedSound = localStorage.getItem("pult.newui.mute") === "1";
+const notifiedLate = new Set();     // по каждой чаше пищим один раз
+let knownOrderIds = new Set();
+let knownCallIds = new Set();
+let knownBarIds = new Set();
+let barSoundReady = false;          // первый опрос не шумит по всем старым чекам
+
+function soundCheck() {
+  if (mutedSound) return;
+  // вызов со стола — свой сигнал, выше тоном
+  for (const c of calls) {
+    if (!knownCallIds.has(c.id)) { knownCallIds.add(c.id); beep(1320, 200); setTimeout(() => beep(1320, 200), 260); }
+  }
+  // новый заказ
+  for (const o of orders) {
+    if (!knownOrderIds.has(o.id)) { knownOrderIds.add(o.id); beep(880, 220); setTimeout(() => beep(1180, 200), 240); }
+  }
+  /* Новый чек на планшете бармена: официант отправил заказ или дописал
+     позицию к уже принятому столу (для сервера это отдельный чек, а не
+     правка старого) — пищим, чтобы бармен не пропустил, что появилось
+     что-то на приготовление. Своих же отправок не слышим — бармен свою
+     отправку и так видит на экране. */
+  if (isBarPrinter()) {
+    const fresh = barOrders.filter(o => o.status === "new");
+    if (!barSoundReady) { for (const o of fresh) knownBarIds.add(o.id); barSoundReady = true; }
+    else for (const o of fresh) {
+      if (!knownBarIds.has(o.id)) { knownBarIds.add(o.id); beep(660, 180); setTimeout(() => beep(990, 220), 220); }
+    }
+  }
+  // просрочка
+  for (const [n, t] of Object.entries(tables)) {
+    for (const h of t.hookahs || []) {
+      if (hookahLeft(h) < 0 && !notifiedLate.has(h.id)) { notifiedLate.add(h.id); beep(440, 400); }
+      if (hookahLeft(h) >= 0) notifiedLate.delete(h.id);
+    }
+  }
+}
+
+// ---------- отрисовка ----------
+function hookahLeft(h) {
+  const plan = (h.plan || rounds[h.round - 1] || rounds[0] || 25) * 60;
+  const start = h.roundStart || h.startedAt || nowMs();
+  return (start + plan * 1000 - nowMs()) / 1000;
+}
+/* На сервере круги нумеруются С ЕДИНИЦЫ: round 1 — первый (25 мин),
+   round 3 — финальный. Смещение на единицу показывало «финальный круг»
+   уже на втором. */
+const isFinalRound = (round) => round >= rounds.length;
+/* Цвет кодирует КРУГ — так это устроено в Стамбуле и так привыкла смена:
+   1-й оранжевый, 2-й зелёный, финальный голубой. Просрочка перекрывает
+   красным: «пора подойти» важнее того, какая идёт стадия. */
+function tone(left, round) {
+  if (left < 0) return "late";
+  if (isFinalRound(round)) return "r3";
+  return round >= 2 ? "r2" : "r1";
+}
+/* Насколько громко показывать строку. Раньше каждая карточка была залита
+   цветом круга и несла яркую оранжевую кнопку — при двух десятках кальянов
+   экран превращался в гирлянду, и глазу не за что зацепиться.
+   Теперь громко выглядит только то, что требует действия:
+   просрочка и «вот-вот»; спокойные кальяны — нейтральные. */
+const urgency = (left) => left < 0 ? "hot" : left < 300 ? "warm" : "calm";
+const COLOR = { r1: "var(--accent)", r2: "var(--ok)", r3: "#0a84ff", late: "var(--late)" };
+const TINT  = { r1: "255,159,10",     r2: "48,209,88", r3: "10,132,255", late: "255,69,58" };
+
+/* Деление = круг. Пройденные залиты приглушённо, текущий заполняется по мере
+   того, как круг идёт, будущие пустые. Одна полоса отвечает сразу на два
+   вопроса: какой круг и сколько его осталось. */
+const segs = (h, tn) => {
+  const round = h.round;
+  const plan = (h.plan || rounds[round - 1] || rounds[0] || 25) * 60;
+  const left = hookahLeft(h);
+  const pct = Math.max(0, Math.min(1, (plan - left) / plan));
+  let out = '<span class="segs">';
+  for (let i = 1; i <= rounds.length; i++) {
+    if (i < round) {
+      out += `<i style="background:${COLOR[tn]};opacity:.35"></i>`;
+    } else if (i === round) {
+      out += `<i class="cur"><b style="background:${COLOR[tn]};width:${Math.round(pct * 100)}%"></b></i>`;
+    } else {
+      out += "<i></i>";
+    }
+  }
+  return out + "</span>";
+};
+
+/* «подходил Илья · 1 мин» — короткая пометка на 5 минут после чужого действия. */
+const byWho = (n) => {
+  const a = recentActs[String(n)];
+  if (!a) return "";
+  const mins = Math.round((nowMs() - a.ts) / 60000);
+  if (mins > 5) return "";
+  return ` · <i class="who2">подходил ${esc(a.who)}${mins >= 1 ? ` · ${mins} мин` : ""}</i>`;
+};
+
+/* Слепок состава экрана. Раз в секунду тикают только цифры — пересобирать
+   ради них всю разметку нельзя: элемент под пальцем исчезает, и второй тап
+   двойного нажатия уходит в пустоту. Поэтому DOM трогаем, только когда
+   реально изменился состав, а таймеры обновляем точечно. */
+function stamp() {
+  const parts = [mode, listFilter, ordersOpen, msgsOpen, openOrder, onShift, myShift];
+  /* Чеки бара обязаны быть в слепке: без них новый заказ приходил с сервера,
+     но перерисовка обрывалась на тике цифр — у бармена не появлялось ничего. */
+  /* Минуты ожидания тоже в слепке: без них счётчик «ждёт N мин» замирал бы
+     до следующего изменения статуса. */
+  for (const o of barOrders) parts.push("b", o.id, o.status,
+    o.status === "done" ? "" : Math.floor((Date.now() - o.ts) / 60000));
+  for (const k of Object.keys(tables).sort()) {
+    const t = tables[k];
+    /* Тон обязан быть в слепке. Раз в секунду tick() красит только цифры,
+       а рамка, фон и приглушение строки живут в классах. Без тона чаша
+       уходила в просрочку, оставаясь спокойной на вид, — ровно то, что
+       смена и должна заметить первым. */
+    for (const h of t.hookahs || []) parts.push(k, h.id, h.round, armed[h.id] || "",
+      tone(hookahLeft(h), h.round), urgency(hookahLeft(h)));
+  }
+  for (const o of orders) parts.push(o.id, o.status || "");
+  for (const c of calls) parts.push(c.id, c.status || "");
+  for (const m of msgs) parts.push(m.id);
+  for (const m of moves) parts.push("mv", m.id);
+  for (const x of stuck) parts.push("st", x.id);
+  return parts.join("|");
+}
+function tick() {
+  // обновляем только то, что меняется каждую секунду
+  for (const el of document.querySelectorAll("[data-tmhid]")) {
+    const hid = el.dataset.tmhid;
+    let hk = null;
+    for (const t of Object.values(tables)) { const f = (t.hookahs || []).find(x => x.id === hid); if (f) { hk = f; break; } }
+    if (!hk) continue;
+    const left = hookahLeft(hk);
+    const tn = tone(left, hk.round);
+    el.textContent = mmss(left);
+    el.style.color = COLOR[tn];
+    // у меток на карте и в сетке выбора цвет живёт ещё и в подложке с обводкой
+    if (el.classList.contains("mark")) {
+      el.style.background = `rgba(${TINT[tn]},.18)`;
+      const cell = el.closest("[data-waiter]");
+      if (cell) cell.style.boxShadow = `inset 0 0 0 1.5px rgba(${TINT[tn]},.5)`;
+    }
+    const bar = el.closest(".row, .hk")?.querySelector(".segs i.cur b");
+    if (bar) {
+      const plan = (hk.plan || rounds[hk.round - 1] || rounds[0] || 25) * 60;
+      bar.style.width = Math.round(Math.max(0, Math.min(1, (plan - left) / plan)) * 100) + "%";
+    }
+  }
+}
+
+/* Экран официанта: карта столов только на просмотр. Занятый стол показан
+   цветом, свободный — серым. Тап открывает две кнопки: позвать кальянщика
+   и попросить сервис. Вести круги официант не может — это работа кальянщика. */
+/* Экран бара: сверху чеки, под ними карта столов.
+   Кальянной кухни здесь нет намеренно — ни таймеров, ни кругов: бармену
+   нужно знать, где сидят гости, а не на каком круге чаша. */
+const CHECK_ST = { new: "новый", work: "готовлю", done: "готово", cancelled: "отменён" };
+/* Сколько ждёт заказ — цифра, по которой бармен понимает, что горит.
+   До 5 минут спокойно, до 10 — пора, дальше гость уже нервничает. */
+const mins = (ms) => {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m < 1 ? "меньше минуты" : m + " мин";
+};
+const waitTone = (ts) => {
+  const m = (Date.now() - ts) / 60000;
+  return m >= 10 ? "late" : m >= 5 ? "soon" : "calm";
+};
+let doneOpen = false;                            // свёрнутый список готовых
+function renderChecks() {
+  /* Готовые уходят из очереди: планшет — принтер чеков, отработанный чек
+     не должен занимать место. Но и терять их нельзя, поэтому они сворачиваются
+     в строку и разворачиваются по тапу. */
+  const active = barOrders.filter(o => o.status !== "done" && o.status !== "cancelled")
+    .sort((a, b) => b.ts - a.ts);
+  const done = barOrders.filter(o => o.status === "done").sort((a, b) => b.doneTs - a.doneTs);
+  const list = doneOpen ? active.concat(done) : active;
+  const nnew = active.filter(o => o.status === "new").length;
+  $("checksHd").classList.remove("hide");
+  $("checks").classList.remove("hide");
+  $("checksInfo").textContent = active.length
+    ? (nnew ? `${nnew} ${nnew === 1 ? "новый" : "новых"} · в работе ${active.length}` : `в работе ${active.length}`)
+    : "все заказы закрыты";
+  /* Заказ на нескольких гостей уходит несколькими чеками — иначе позиции двух
+     людей склеились бы в один счёт. Бармен видел два чека на один стол и не
+     понимал, зачем их два. Поэтому чек подписан гостем. «Общий» помечаем
+     только когда на этом столе есть и именные чеки, иначе метка — мусор. */
+  const withGuest = new Set(list.filter(o => (o.guest || 0) > 0).map(o => String(o.table)));
+  $("checks").innerHTML = list.map(o => {
+    const done = o.status === "done";
+    const gst = (o.guest || 0) > 0
+      ? `<span class="gst">Гость ${o.guest}</span>`
+      : (withGuest.has(String(o.table)) ? `<span class="gst all">Общий</span>` : "");
+    const items = (o.items || []).map(i =>
+      `<div class="it"><span class="n">${i.n} ×</span><span class="nm">${esc(i.name)}${
+        i.note ? `<em>${esc(i.note)}</em>` : ""}</span>${
+        i.price ? `<span class="pr">${i.n * i.price} ₽</span>` : ""}</div>`).join("");
+    return `<div class="check ${o.status}">
+      <div class="ch"><b>Стол ${esc(String(o.table))}</b>${gst}<span class="tm">${hhmm(o.ts)}</span>
+        ${done
+          ? `<span class="tm">готовили ${mins(o.doneTs - o.ts)}</span>`
+          : `<span class="wait ${waitTone(o.ts)}">ждёт ${mins(Date.now() - o.ts)}</span>`}
+        <span class="sp"></span><span class="st ${o.status}">${CHECK_ST[o.status] || o.status}</span></div>
+      ${items}
+      ${o.comment ? `<div class="cm">✎ ${esc(o.comment)}</div>` : ""}
+      <div class="cf"><span class="lb">Итого</span><span class="sum">${o.sum || 0} ₽</span>
+        <span class="sp"></span>
+        ${done
+          ? `<button class="gx" data-bcancel="${o.id}">Отменить</button>
+             <button class="gh" data-bst="new" data-bid="${o.id}">Вернуть в работу</button>`
+          : `<button class="gx" data-bcancel="${o.id}">Отменить</button>
+             ${o.status === "new" ? `<button class="gh" data-bst="work" data-bid="${o.id}">Взял</button>` : ""}
+             <button class="go" data-bst="done" data-bid="${o.id}">Готово</button>`}
+      </div></div>`;
+  }).join("") + (done.length
+    ? `<button class="donemore" data-donemore="1">${doneOpen ? "скрыть готовые" : `готовые · ${done.length}`}</button>`
+    : "");
+}
+$("checks").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-donemore]")) { doneOpen = !doneOpen; render(true); return; }
+  /* Отмена чека у бармена — в два тапа: рука в зале задевает экран часто. */
+  const cx = e.target.closest("[data-bcancel]");
+  if (cx) {
+    if (cx.dataset.armed !== "1") {
+      cx.dataset.armed = "1"; cx.textContent = "Точно?"; cx.classList.add("armed");
+      setTimeout(() => { if (cx.dataset.armed === "1") { cx.dataset.armed = ""; cx.textContent = "Отменить"; cx.classList.remove("armed"); } }, 4000);
+      return;
+    }
+    await barEdit({ id: cx.dataset.bcancel, cancel: true });
+    return;
+  }
+  const b = e.target.closest("[data-bid]"); if (!b) return;
+  b.disabled = true;
+  try {
+    const r = await api("/api/bar/act", { method: "POST",
+      body: JSON.stringify({ id: b.dataset.bid, status: b.dataset.bst }) });
+    const d = await r.json();
+    if (!d.ok) toast("Не вышло", d.error || "", true);
+  } catch (err) { toast("Нет связи", "", true); }
+  poll();
+});
+/* Счёт стола: что уже заказано и что добавить.
+   На планшете-принтере заказы не забивают — там только сервисные действия. */
+let tabNow = "order", guestNow = 0, guestMax = 0, guestAdded = 0;
+function setTab(t) {
+  tabNow = t;
+  $("tabOrder").classList.toggle("hide", t !== "order");
+  $("tabBill").classList.toggle("hide", t !== "bill");
+  $("tabSvc").classList.toggle("hide", t !== "svc");
+  renderDock();
+  if (t !== "svc") { $("callMoveWrap").classList.add("hide");
+    $("callOtherWrap").classList.add("hide"); $("callSvc").classList.remove("hide"); }
+}
+/* Док — единственная полоса внизу. Что в ней лежит, зависит от состояния:
+   пустая корзина не должна занимать место кнопкой «Отправить», которой нечего
+   отправлять, а набранный заказ важнее кнопки «Сервис».
+
+   | где мы            | док                                        |
+   |-------------------|--------------------------------------------|
+   | заказ, пусто      | [Счёт сумма] [Сервис]                      |
+   | заказ, набрано N  | [Счёт сумма] [Гость · N · сумма] [Отправить]|
+   | счёт              | [‹ К заказу] [Сервис]                      |
+   | сервис            | [‹ К заказу]                               |
+*/
+let cartOpen = false;
+function renderDock() {
+  const n = barCart.reduce((a, x) => a + x.n, 0);
+  const sum = barCart.reduce((a, x) => a + x.n * (x.prices[0] || 0), 0);
+  const order = tabNow === "order";
+  const bill = callTable ? tableOrders(callTable).reduce((a, o) => a + (o.sum || 0), 0) : 0;
+  $("dockBack").classList.toggle("hide", order);
+  /* На планшете бармена стол открывается на счёте, и «‹ К заказу» читалось как
+     «назад» — хотя бармен в заказе не был. Ему это не возврат, а способ
+     дописать то, что официант забыл. */
+  $("dockBack").textContent = isBarPrinter() ? "＋ Добавить позиции" : "‹ К заказу";
+  $("dockBill").classList.toggle("hide", !order);
+  $("dockSum").textContent = bill + " ₽";
+  $("dockSvc").classList.toggle("hide", order ? !!n : tabNow !== "bill");
+  /* Кнопка-корзина в доке нужна только когда список раскрыт — свернуть его.
+     В обычном состоянии набранное видно в блоке ЗАКАЗ сверху, и дублировать
+     его внизу незачем: место уходит кнопке «Отправить». */
+  $("dockCart").classList.toggle("hide", !(order && n && cartOpen));
+  $("callSend").classList.toggle("hide", !(order && n));
+  $("callSend").innerHTML = n
+    ? `Отправить<span class="sendsum">${n} · ${sum} ₽</span>`
+    : "Отправить";
+  $("cartCnt").textContent = n;
+  $("cartSum").textContent = sum + " ₽";
+  /* Кому записан заказ, видно ВСЕГДА: спрятанные гости — верный способ
+     записать три латте не тому человеку и заметить это только в счёте. */
+  const gset = new Set(barCart.map(x => x.guest || 0));
+  /* «Общий» — не гость, а общий счёт, поэтому считаем не гостей, а чеки:
+     сколько получателей, столько чеков и уйдёт на бар. */
+  const who = gset.size > 1 ? "раздельно · " + gset.size + " " + plural(gset.size, "чек", "чека", "чеков") + " · "
+            : guestNow ? "Гость " + guestNow + " · " : "";
+  $("cartWhat").textContent = who + (cartOpen ? "свернуть" :
+    barCart.map(x => (x.n > 1 ? x.n + "× " : "") + x.name).join(", "));
+  const open = order && n && cartOpen;
+  renderOrderBox();
+  $("cartList").classList.toggle("hide", !open);
+  $("callTextWrap").classList.toggle("hide", !open);
+  $("callSheet").classList.toggle("cartmode", !!open);
+  if (open) {
+    const gs = [{ id: 0, t: "Всё вместе" }];
+    for (let i = 1; i <= guestMax; i++) gs.push({ id: i, t: "Гость " + i });
+    gs.push({ id: -1, t: "＋ гость" });
+    $("cartList").innerHTML =
+      `<div class="chead"><b>В заказе</b><span>${n} ${plural(n, "позиция", "позиции", "позиций")} · ${
+        sum} ₽</span></div>
+       <div class="clbl">Кому записать</div><div class="chips guests cgs">${
+        gs.map(g => `<button data-guest="${g.id}" class="${g.id === guestNow ? "on" : ""}">${
+          esc(g.t)}</button>`).join("")}</div>` +
+      barCart.map((x, k) =>
+      `<div class="cl"><div class="clr"><span class="cn">${esc(x.name)}</span>
+        <button data-cminus="${k}">−</button><span class="cq">${x.n}</span><button data-cplus="${k}">+</button>
+        <span class="cp">${x.n * (x.prices[0] || 0)} ₽</span></div>
+        <div class="clg"><button data-cguest="${k}">${
+          x.guest ? "Гость " + x.guest : "Общий"}</button>
+          <input class="cnote" data-cnote="${k}" value="${esc(x.note || "")}"
+               placeholder="комментарий — без сахара, побольше льда…"></div></div>`).join("");
+  }
+}
+/* Заказ сверху: две последние позиции — свежая первой. Больше двух прячем
+   в «и ещё N», иначе блок съест меню. */
+function renderOrderBox() {
+  const box = $("ordBox");
+  const n = barCart.reduce((a, x) => a + x.n, 0);
+  const show = tabNow === "order" && n > 0 && !cartOpen;
+  box.classList.toggle("hide", !show);
+  if (!show) { box.innerHTML = ""; return; }
+  const sum = barCart.reduce((a, x) => a + x.n * (x.prices[0] || 0), 0);
+  const idx = barCart.map((x, i) => i).slice(-2).reverse();
+  const restN = barCart.length - idx.length;
+  const restSum = barCart.slice(0, barCart.length - idx.length)
+    .reduce((a, x) => a + x.n * (x.prices[0] || 0), 0);
+  const who = guestNow ? "Гость " + guestNow : "Все";
+  box.innerHTML =
+    `<div class="oh"><b>ЗАКАЗ</b><span class="os">${n} · ${sum} ₽</span>
+      <button class="og" data-ordguest>${esc(who)} ▾</button></div>` +
+    idx.map(i => {
+      const x = barCart[i];
+      return `<div class="orow"><span class="on2"><b>${esc(x.name)}</b>${
+        x.guest ? `<span>Гость ${x.guest}</span>` : `<span>Общий</span>`}</span>${
+        x.n > 1 ? `<span class="oq">×${x.n}</span>` : ""}
+        <span class="op">${x.n * (x.prices[0] || 0)} ₽</span>
+        <button class="ox" data-ordminus="${i}" aria-label="убрать">−</button></div>`;
+    }).join("") +
+    (restN ? `<button class="omore" data-ordmore>и ещё ${restN} ${
+      plural(restN, "позиция", "позиции", "позиций")} · ${restSum} ₽<i>развернуть ⌄</i></button>` : "");
+}
+$("ordBox").addEventListener("click", (e) => {
+  const m = e.target.closest("[data-ordminus]");
+  if (m) { const i = +m.dataset.ordminus;
+    if (--barCart[i].n <= 0) barCart.splice(i, 1);
+    renderBarCart(); return; }
+  if (e.target.closest("[data-ordmore]") || e.target.closest("[data-ordguest]")) {
+    cartOpen = true; renderDock(); }
+});
+$("dockCart").onclick = () => { cartOpen = !cartOpen; renderDock(); };
+$("dockBill").onclick = () => setTab("bill");
+$("dockBack").onclick = () => setTab("order");
+$("dockSvc").onclick = () => setTab("svc");
+/* Поиск набирают редко — держать его поле открытым всё время значит дарить
+   ему 62 px из 874. Открывается кнопкой в шапке и сам уходит, когда пуст. */
+$("cbFind").onclick = () => {
+  const f = $("cbSearch"), on = f.classList.contains("hide");
+  f.classList.toggle("hide", !on);
+  $("cbFind").classList.toggle("on", on);
+  if (on) f.focus();
+  else { f.value = ""; barQuery = ""; renderBarCats(); renderBarList(); }
+};
+$("cartList").addEventListener("click", (e) => {
+  const p = e.target.closest("[data-cplus]"), m = e.target.closest("[data-cminus]");
+  const g = e.target.closest("[data-cguest]");
+  if (p) barCart[+p.dataset.cplus].n++;
+  else if (m) { const i = +m.dataset.cminus; if (--barCart[i].n <= 0) barCart.splice(i, 1); }
+  else if (g) {
+    /* Перебор по кругу: Общий → Гость 1 → … → Общий. Подпись всегда показывает
+       результат, поэтому промахнуться молча нельзя. */
+    const i = +g.dataset.cguest;
+    barCart[i].guest = ((barCart[i].guest || 0) + 1) % (guestMax + 1);
+  }
+  else return;
+  renderBarCart();
+});
+$("cartList").addEventListener("input", (e) => {
+  const n = e.target.closest("[data-cnote]"); if (!n) return;
+  barCart[+n.dataset.cnote].note = n.value.slice(0, 80);
+});
+/* Отменённый заказ в счёте не место: он не готовится, не подаётся и не
+   оплачивается. В журнале сервера он остаётся, а глазами смены его быть
+   не должно — иначе комментарий висит и сумма врёт. */
+/* Кальян в счёте: тариф зависит от времени, а в самой чаше цены нет — там
+   только вкус. До 17:00 действует «Классический (до 17:00)», после — обычный
+   «Классический». Цены берём из меню точки, а не зашиваем в код: поменяют
+   прайс — счёт поедет следом. DEUS и «2 классических» не подставляем: их
+   выбирает официант руками, автомат тут только соврёт. */
+function hookahPrice() {
+  const cat = (barMenu || []).find(c => /кальян/i.test(c.name));
+  if (!cat || !cat.items || !cat.items.length) return 0;
+  const day = cat.items.find(i => /до\s*17/i.test(i.name));
+  const eve = cat.items.find(i => /^Классический$/i.test(i.name));
+  const pick = (new Date(nowMs()).getHours() < 17 ? day : eve) || day || cat.items[0];
+  return (pick && pick.prices && pick.prices[0]) || 0;
+}
+const tableOrders = (n) => barOrders
+  .filter(o => String(o.table) === String(n) && o.status !== "cancelled")
+  .sort((a, b) => a.ts - b.ts);
+
+function renderBill(n) {
+  const all = tableOrders(n);
+  const mine = guestNow ? all.filter(o => (o.guest || 0) === guestNow) : all;
+  const hks = (tables[String(n)] || {}).hookahs || [];
+  /* Гостей даёт не только счёт: «＋ гость» заводит его ДО первого заказа.
+     Раньше guestMax считался только по отправленному, поэтому нажатие
+     «＋ гость» не добавляло кнопку — выбранный гость просто пропадал. */
+  /* Гостей ноль, пока их не завели: строка «Всё вместе / Гость 1 / ＋ гость»
+     на пустом столе врала — Гость 1 уже как будто есть, и «＋ гость» заводил
+     сразу второго. Теперь первый «＋ гость» даёт Гостя 1. */
+  guestMax = Math.max(0, guestAdded, guestNow, ...all.map(o => o.guest || 0));
+  /* Гости — режим по желанию: по умолчанию «всё вместе». Заводить гостей
+     на каждый стол никто не станет, это только замедлит зал. */
+  const gs = [{ id: 0, t: "Всё вместе" }];
+  for (let i = 1; i <= guestMax; i++) gs.push({ id: i, t: "Гость " + i });
+  gs.push({ id: -1, t: "＋ гость" });
+  const gsHtml = gs.map(g =>
+    `<button data-guest="${g.id}" class="${g.id === guestNow ? "on" : ""}">${esc(g.t)}</button>`).join("");
+  $("callGuests").innerHTML = gsHtml;
+
+  /* Кальяны в счёте больше не участвуют (решение Андрея 28.08): ни денег,
+     ни закрытых чаш, ни кнопок. Остаётся справка — на каком круге чаша и
+     когда её открыли. Погашенные не показываем совсем: платить за них
+     всё равно считают не здесь, а в кассе. */
+  $("callHk").classList.toggle("hide", !hks.length);
+  $("callHkList").innerHTML = hks.map(h =>
+    `<div class="hkrow"><span class="hn"><b>${esc((h.build && h.build.flavor) || "Кальян")}</b>
+      <span>круг ${h.round} из ${(rounds || []).length || 3}${
+        h.startedAt ? " · открыт в " + hhmm(h.startedAt) : ""}</span></span></div>`).join("");
+
+  const sum = mine.reduce((a, o) => a + (o.sum || 0), 0);
+  /* Итог по столу — ТОЛЬКО бар (решение Андрея 28.08). Кальян в счёт не
+     считаем: тариф зависит от времени и вида, автомат тут врёт чаще, чем
+     помогает. Чаши показываем справочно — чтобы официант видел, что на столе. */
+  $("callHkSum").textContent = hks.length
+    ? hks.length + " " + plural(hks.length, "чаша", "чаши", "чаш") + " · ведёт кальянщик"
+    : "ведёт кальянщик";
+  $("callHas").classList.toggle("hide", !mine.length);
+  $("callBarSum").textContent = sum + " ₽";
+  /* Заказ раскрывается по тапу: в одной строке позиции не помещаются и
+     обрезаются, а официанту надо видеть, что именно этому столу приносили. */
+  /* На планшете список позиций разворачивать не надо: бармен смотрит на стол
+     мельком и должен сразу видеть состав, а не тыкать в каждую строку. */
+  const alwaysOpen = isBarPrinter();
+  $("callHasList").innerHTML = mine.map(o => {
+    const open = alwaysOpen || billOpen.has(o.id);
+    const short = (o.items || []).map(i => (i.n > 1 ? i.n + "× " : "") + esc(i.name)).join(", ");
+    /* Править можно и готовый заказ: гость передумал уже после того, как
+       принесли, и счёт всё равно надо привести в порядок. Запрещено только
+       трогать закрытый счёт — там гости ушли и деньги посчитаны. */
+    const canEdit = !o.closed;
+    const det = open ? `<div class="hasdet">${
+      (o.items || []).map((i, k) => `<div class="dl">${
+        canEdit ? `<button class="dm" data-qty="${o.id}" data-idx="${k}" data-n="${i.n - 1}">−</button>` : ""}
+        <span class="dq">${i.n}${canEdit ? "" : " ×"}</span>${
+        canEdit ? `<button class="dm" data-qty="${o.id}" data-idx="${k}" data-n="${i.n + 1}">+</button>` : ""}
+        <span class="dn">${esc(i.name)}${i.note ? `<em>${esc(i.note)}</em>` : ""}</span><span class="dp">${i.n * (i.price || 0)} ₽</span>${
+        canEdit ? `<button class="dx" data-drop="${o.id}" data-idx="${k}">✕</button>` : ""}</div>`).join("")}${
+      o.comment ? `<div class="dc">✎ ${esc(o.comment)}</div>` : ""}
+      ${canEdit ? `<div class="dg"><span>Чей заказ</span>${
+        [0, 1, 2, 3].slice(0, Math.max(3, guestMax + 1)).map(g =>
+          `<button data-setguest="${o.id}" data-g="${g}" class="${(o.guest || 0) === g ? "on" : ""}">${
+            g ? "Гость " + g : "Общий"}</button>`).join("")}</div>` : ""}
+      <div class="dw">забил ${esc(o.by || "смена")}${
+        o.status === "done" && o.doneBy ? " · готовил " + esc(o.doneBy) : ""}</div>${
+        canEdit ? `<button class="dcancel" data-cancel="${o.id}">Отменить весь заказ</button>` : ""}</div>` : "";
+    return `<div class="hasitem ${open ? "open" : ""}" data-bill="${o.id}">
+      <div class="hasrow"><span class="ht">${hhmm(o.ts)}</span>
+        <span class="hi">${open ? "" : short}</span>
+        <span class="hp">${o.sum || 0} ₽</span>
+        <span class="hs ${o.status}">${CHECK_ST[o.status] || o.status}</span>
+        ${alwaysOpen ? "" : `<span class="hx">${open ? "⌃" : "⌄"}</span>`}</div>${det}</div>`;
+  }).join("");
+  $("callTotal").textContent = sum + " ₽";
+  setLead(n);
+  $("callClose").classList.toggle("hide", !all.length);
+}
+
+/* Подпись стола: сначала деньги — это то, ради чего открывают счёт, — потом
+   чаши. Пересчитывается на каждой перерисовке, иначе после отправки заказа
+   в шапке оставалась старая сумма. */
+function setLead(n) {
+  const hks = ((tables[String(n)] || {}).hookahs || []).length;
+  const bill = tableOrders(n).reduce((a, o) => a + (o.sum || 0), 0);
+  $("callLead").textContent = [
+    bill ? "счёт " + bill + " ₽" : "",
+    hks ? hks + " " + plural(hks, "чаша", "чаши", "чаш") : "",
+  ].filter(Boolean).join(" · ") || "пока пусто";
+}
+function openTable(n) {
+  callTable = n;
+  const printer = isBarPrinter();
+  const hks = ((tables[String(n)] || {}).hookahs || []).length;
+  const bill = tableOrders(n).reduce((a, o) => a + (o.sum || 0), 0);
+  guestNow = 0; guestAdded = 0;
+  $("callTitle").textContent = "Стол " + n;
+  setLead(n);
+
+  barUI = { search: "cbSearch", cats: "cbCats", list: "cbList",
+            cart: "cbCart", cartWrap: "cbCartWrap", sum: "cbSum" };
+  barCart = []; barCat = null; barQuery = "";
+  $("cbSearch").value = ""; $("cbList").innerHTML = ""; $("callText").value = "";
+  renderBill(n);
+  /* Забить заказ можно и с планшета: бармен принимает у стойки, официант —
+     в зале. Планшет открывается на счёте — он прежде всего показывает стол,
+     а заказ добирается одной вкладкой. */
+  cartOpen = false;
+  setTab(printer ? "bill" : "order");
+  /* Открываем сразу на «Частом»: 80% заказов — это одни и те же позиции,
+     и лезть за ними в категории каждый раз незачем. Пока частого нет
+     (первые смены), открываем первую категорию меню, а не пустой список. */
+  loadBarMenu().then(() => {
+    barCat = freqItems().length ? FREQ_CAT : ((barMenu || [])[0] || {}).name || null;
+    renderBarCats(); renderBarList();
+    /* Счёт рисуется раньше, чем приедет меню, а цена кальяна берётся именно
+       из меню — без этой перерисовки итог оставался без кальянов. */
+    if (callTable) renderBill(callTable);
+  });
+  $("scrimCall").classList.add("on"); $("callSheet").classList.add("on");
+}
+const billOpen = new Set();                      // какие заказы раскрыты в счёте
+/* Закрытие счёта — в два тапа: гости ушли, вернуть уже не получится. */
+$("callClose").onclick = async function () {
+  if (!callTable) return;
+  const b = this;
+  if (b.dataset.armed !== "1") {
+    b.dataset.armed = "1"; b.textContent = "Точно закрыть стол?"; b.classList.add("armed");
+    setTimeout(() => { if (b.dataset.armed === "1") {
+      b.dataset.armed = ""; b.textContent = "Гости ушли — закрыть стол"; b.classList.remove("armed"); } }, 4000);
+    return;
+  }
+  const n = callTable;
+  b.dataset.armed = ""; b.textContent = "Гости ушли — закрыть стол"; b.classList.remove("armed");
+  closeCall();
+  try {
+    const r = await api("/api/bar/close", { method: "POST", body: JSON.stringify({ table: n }) });
+    const d = await r.json();
+    if (d.ok) toast("Счёт закрыт", `Стол ${n}${d.closed ? " · " + d.closed + " заказ(ов)" : ""}`);
+    else toast("Не вышло", d.error || "", true);
+  } catch (err) { toast("Нет связи", "", true); }
+  poll();
+};
+
+async function barEdit(body) {
+  try {
+    const r = await api("/api/bar/edit", { method: "POST", body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) { toast(body.cancel ? "Заказ отменён" : "Позиция снята", ""); poll(); }
+    else toast("Не вышло", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+}
+$("callHasList").addEventListener("click", async (e) => {
+  const qty = e.target.closest("[data-qty]");
+  if (qty) {
+    e.stopPropagation();
+    await barEdit({ id: qty.dataset.qty, idx: +qty.dataset.idx, qty: +qty.dataset.n });
+    return;
+  }
+  const sg = e.target.closest("[data-setguest]");
+  if (sg) {
+    e.stopPropagation();
+    await barEdit({ id: sg.dataset.setguest, guest: +sg.dataset.g });
+    return;
+  }
+  const drop = e.target.closest("[data-drop]");
+  if (drop) {
+    e.stopPropagation();
+    await barEdit({ id: drop.dataset.drop, drop: +drop.dataset.idx });
+    return;
+  }
+  const cancel = e.target.closest("[data-cancel]");
+  if (cancel) {
+    e.stopPropagation();
+    if (cancel.dataset.armed !== "1") {            // отмена заказа — в два тапа
+      cancel.dataset.armed = "1"; cancel.textContent = "Точно отменить?";
+      setTimeout(() => { if (cancel.dataset.armed === "1") { cancel.dataset.armed = ""; cancel.textContent = "Отменить весь заказ"; } }, 4000);
+      return;
+    }
+    /* Раскрытая карточка отменённого заказа оставалась на экране: заказ уже
+       не существует, а официант смотрит на его состав и жмёт дальше. */
+    const cid = cancel.dataset.cancel;
+    await barEdit({ id: cid, cancel: true });
+    billOpen.delete(cid);
+    renderBill(callTable);
+    return;
+  }
+  const b = e.target.closest("[data-bill]"); if (!b) return;
+  const id = b.dataset.bill;
+  if (billOpen.has(id)) billOpen.delete(id); else billOpen.add(id);
+  renderBill(callTable);
+});
+function pickGuest(e) {
+  const b = e.target.closest("[data-guest]"); if (!b) return;
+  const g = +b.dataset.guest;
+  if (g === -1) { guestAdded = guestMax + 1; guestNow = guestAdded; }
+  else guestNow = g;
+  renderBill(callTable);
+  renderDock();
+  renderBarList();                       // счётчики в меню — свои у каждого гостя
+}
+$("callGuests").addEventListener("click", pickGuest);
+$("cartList").addEventListener("click", pickGuest);
+$("callHkList").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-askclose]"); if (!b || !callTable) return;
+  if (b.dataset.armed !== "1") {
+    b.dataset.armed = "1"; b.textContent = "Отправить просьбу?";
+    setTimeout(() => { if (b.dataset.armed === "1") { b.dataset.armed = ""; b.textContent = "Попросить закрыть"; } }, 4000);
+    return;
+  }
+  const what = b.dataset.askclose;
+  closeCall();
+  // вкус знаем не всегда: без него просьба звучит по-человечески, а не «кальян «кальян»»
+  sendCall("other", "просьба закрыть кальян",
+    what ? `Гости просят закрыть кальян «${what}»` : "Гости просят закрыть кальян");
+});
+
+
+function renderWaiter() {
+  if (isBarPrinter()) renderChecks();
+  else { $("checksHd").classList.add("hide"); $("checks").classList.add("hide"); }
+  $("rows").classList.add("hide");
+  $("busy").classList.add("hide");
+  $("bottom").classList.add("hide");
+  $("orders").classList.add("hide");
+  /* На барном экране не должно быть кальянной кухни: ни ленты чаш, ни
+     фильтров срочности, ни общих записок смены — только чеки и карта столов. */
+  $("msgs").classList.add("hide");
+  $("freeHd").classList.add("hide");
+  const filt = $("filters"); if (filt) filt.classList.add("hide");
+
+  const hd = $("busyHd");
+  hd.classList.remove("hide");
+  hd.querySelector("b").textContent = "Столы";
+  hd.querySelector("span").textContent = "тап по столу — позвать кальянщика или сервис";
+
+  const free = $("free");
+  free.classList.remove("hide");
+  let html = "";
+  for (let i = 1; i <= (tablesCount || 0); i++) {
+    const t = tables[String(i)];
+    const busyT = t && (t.hookahs || []).length;
+    /* Берём САМУЮ срочную чашу стола: она задаёт и время, и цвет. И помечаем
+       её id — по этой метке tick() обновляет цифры раз в секунду. Без метки
+       карта оживала только при полной перерисовке, и на барном планшете
+       время просто висело. */
+    const worst = busyT ? t.hookahs.reduce((a, b) => hookahLeft(a) <= hookahLeft(b) ? a : b) : null;
+    const left = worst ? hookahLeft(worst) : null;
+    const tn = worst ? tone(left, worst.round) : null;
+    // открытый счёт бара важнее занятости: по нему видно, куда уже носили
+    const hasBill = barOrders
+      .filter(o => String(o.table) === String(i) && o.status !== "cancelled")
+      .reduce((a, o) => a + (o.sum || 0), 0);
+    html += `<button data-waiter="${i}" class="${busyT ? "wbusy" : ""}"
+      style="${busyT ? `box-shadow:inset 0 0 0 1.5px rgba(${TINT[tn]},.5);` : ""}">
+      ${i}${busyT || hasBill ? `<i class="mark plain">${
+        hasBill ? hasBill + " ₽" : ""}${
+        busyT && hasBill ? " · " : ""}${
+        busyT ? busyT + " " + plural(busyT, "чаша", "чаши", "чаш") : ""}</i>` : ""}
+    </button>`;
+  }
+  free.innerHTML = html;
+}
+
+/* Вспышка строки: подтверждение, что сервер принял действие. */
+/* ⚠️ Вспышку надо накладывать ПОСЛЕ перерисовки. Раньше класс ставился на
+   строку до render(), а тот переписывал разметку ленты целиком — вместе со
+   строкой исчезала и вспышка. На экране подтверждения действия не было
+   вовсе, оставалась одна вибрация, которой на планшете нет. */
+const flashUntil = new Map();                    // hid → до какого времени светится
+function paintFlash() {
+  for (const el of document.querySelectorAll("[data-rowhid]"))
+    el.classList.toggle("done", flashUntil.has(el.dataset.rowhid));
+}
+function flash(hid) {
+  if (!hid) return;
+  flashUntil.set(hid, Date.now() + 700);
+  paintFlash();
+  setTimeout(() => { flashUntil.delete(hid); paintFlash(); }, 700);
+}
+
+let lastStamp = "";
+function render(force) {
+  if (!key) return;
+  const st = stamp();
+  if (!force && st === lastStamp) { tick(); return; }
+  lastStamp = st;
+  const nums = Object.keys(tables).filter(k => tables[k] && (tables[k].hookahs || []).length);
+  /* Сверху то, к чему идти первым: просрочка, потом «вот-вот», потом спокойные.
+     Раньше столы шли по номеру — глазами приходилось искать, что горит. */
+  let busyList = nums.map(k => ({ n: k, ...tables[k] }))
+    .sort((a, bb) => Math.min(...a.hookahs.map(hookahLeft)) - Math.min(...bb.hookahs.map(hookahLeft)));
+
+  /* «Срочные» — то, к чему идти в ближайшие минуты: просрочка и всё, чему
+     осталось меньше пяти минут. Если срочного нет, показываем всё, чтобы
+     экран не выглядел пустым при полном зале. */
+  /* Только что обслуженный стол не должен пропадать с экрана: круг продлили,
+     он перестал быть срочным и исчезал из списка — выглядело так, будто
+     нажатие не сработало. Держим его ещё полминуты. */
+  const justTouched = (n) => recentTouch[String(n)] && Date.now() - recentTouch[String(n)] < 30000;
+  const urgentOnly = busyList.filter(t =>
+    Math.min(...t.hookahs.map(hookahLeft)) < 300 || justTouched(t.n));
+  if (listFilter === "urgent" && urgentOnly.length) busyList = urgentOnly;
+  if (listFilter === "num") busyList = busyList.slice().sort((a, bb) => (+a.n) - (+bb.n));
+  else {
+    busyList = keepOrder(busyList, (t) => String(t.n), lastTableOrder);
+    if (Date.now() >= orderFreeze) lastTableOrder = busyList.map(t => String(t.n));
+  }
+  const hiddenCount = nums.length - busyList.length;
+  const total = tablesCount || 0;
+
+  $("conn").classList.toggle("off", Date.now() - lastOk > 12000);
+  $("venue").textContent = venueName;
+  $("meta").textContent = total ? total + " столов" : "";
+  $("shiftBanner").classList.toggle("hide", onShift !== false);
+  /* Принятый, но не заведённый заказ — единственное место, где работа может
+     потеряться совсем: из очереди он уже ушёл, а кальяна нет. Висит, пока
+     стол не запустят. */
+  /* Плашка пересадки — дело стойки: кальянщик её и создал, ему она ни к чему. */
+  const showMoves = mode === "tablet" && moves.length;
+  $("moveBanner").classList.toggle("hide", !showMoves);
+  // разметку пишем всегда: иначе в скрытой плашке остаются мёртвые кнопки
+  $("moveBanner").innerHTML = !showMoves ? "" : moves.map(m => {
+    const p = String(m.text).match(/(\d+)\s*→\s*(\d+)/);
+    return `<div class="stuckrow">
+      <span>${esc(m.text)} · ${esc(m.who)}<br><i class="mvhint">Перенесите счёт в кассе — бар остался на прежнем столе.</i></span>
+      ${p ? `<button class="ghost" data-mvback="${esc(m.id)}" data-from="${p[2]}" data-to="${p[1]}">Вернуть обратно</button>` : ""}
+      <button data-mvack="${esc(m.id)}">Перенёс</button></div>`;
+  }).join("");
+  $("stuckBanner").classList.toggle("hide", !stuck.length);
+  $("stuckBanner").innerHTML = stuck.map(x =>
+    `<div class="stuckrow">Заказ на стол ${esc(x.n)} принят, но кальян не заведён${x.text ? " · " + esc(x.text) : ""}
+      <button data-stuck="${esc(x.id)}">Завести стол ${esc(x.n)}</button></div>`).join("");
+  /* Вне смены сервер всё равно отклонит действие. Раньше кнопки оставались
+     живыми, человек жал и получал ошибку — выглядело как поломка пульта. */
+  document.body.classList.toggle("offshift", onShift === false);
+
+  const allBusy = nums.map(k => tables[k]);
+  const cups = allBusy.reduce((s, t) => s + (t.hookahs || []).length, 0);
+  const due = allBusy.reduce((s, t) => s + (t.hookahs || []).filter(h => hookahLeft(h) < 120).length, 0);
+  /* Сначала то, ради чего смотрят на строку. На телефоне она обрезается
+     многоточием, и раньше под нож уходило именно число «углям пора». */
+  $("busyInfo").textContent = nums.length
+    ? (due ? `углям пора на ${due} · ` : "всё в норме · ") + `${nums.length} столов · ${cups} чаш`
+      + (hiddenCount > 0 ? ` · скрыто ${hiddenCount}` : "")
+    : "пока пусто";
+  [...document.querySelectorAll("#filters button")].forEach(b => b.classList.toggle("on", b.dataset.f === listFilter));
+
+  /* Входящие сообщения разведены по экранам. Барные заказы помечены «Бар ·»
+     при отправке: бармен видит ТОЛЬКО их, стойка — только всё остальное.
+     Иначе кальянная кухня лезет бармену, а барные заказы — кальянщикам,
+     и оба экрана превращаются в общий чат. */
+  const isBarMsg = (m) => /^Бар\s*·/.test(m.text || "");
+  const myMsgs = mode === "waiter" ? msgs.filter(isBarMsg) : msgs.filter(m => !isBarMsg(m));
+  // У кальянщика в зале телефон только отправляет: лента на нём мешает работать.
+  const showMsgs = mode !== "phone" && myMsgs.length > 0;
+  $("msgs").classList.toggle("hide", !showMsgs);
+  /* Показываем два свежих, остальные прячем в строку — иначе лента
+     оттесняет зал вниз, а работа важнее переписки. */
+  const shown = msgsOpen ? myMsgs : myMsgs.slice(0, 2);
+  const restCount = myMsgs.length - shown.length;
+  $("msgs").innerHTML = shown.map(m => {
+    const dt = new Date(m.ts);
+    const when = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+    return `<div class="msg"><span class="ic">✉️</span>
+      <span class="t"><b>${esc(m.text)}</b>
+      <span>${esc(m.who || "смена")} · ${when}</span></span>
+      <button data-seen="${m.id}">Понятно</button></div>`;
+  }).join("") + (restCount > 0
+    ? `<button class="msgmore" data-msgmore="1">ещё ${restCount} ${restCount === 1 ? "сообщение" : "сообщения"}</button>`
+    : (msgsOpen && msgs.length > 2 ? `<button class="msgmore" data-msgmore="0">свернуть</button>` : ""));
+
+  // заказы официантов — полосой сверху
+  /* Все заказы списком, самый старый сверху: кто дольше ждёт, того и берут. */
+  const waiter = myRole === "waiter";
+  const isPhone = mode === "phone";
+  const queue = orders.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  $("orders").classList.toggle("hide", !queue.length);
+  /* Свёрнутая плашка — одна строка: номер, забивка, сколько ждёт.
+     Так на экран помещается вся очередь. Тап разворачивает нужную: там
+     полный текст, кто прислал и кнопка. Разом раскрыт только один заказ. */
+  /* Вызовы со столов: официант нажал «позвать кальянщика» — это видят и стойка,
+     и кальянщик. Вызов срочнее заказа: гость уже ждёт, поэтому он выше. */
+  const liveCalls = calls.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  $("calls").classList.toggle("hide", !liveCalls.length || waiter);
+  $("calls").innerHTML = liveCalls.map(c => {
+    const mins = Math.max(0, Math.round((nowMs() - (c.ts || nowMs())) / 60000));
+    const acked = c.status === "acked";
+    return `<div class="notice call${acked ? " acked" : ""}">
+      <div class="num">${esc(c.table ?? "—")}</div>
+      <div class="txt"><b>${esc(c.kindLabel || c.kind || "Вызов")}</b>
+        <span class="meta"><span class="age" style="align-self:flex-start">${mins < 1 ? "только что" : `ждёт ${mins} мин`}</span>
+        ${c.comment ? `<span class="when">${esc(c.comment)}</span>` : ""}</span></div>
+      ${acked ? `<button class="take" data-calldone="${esc(c.id)}">Сделал</button>`
+              : `<button class="take" data-callack="${esc(c.id)}">Иду</button>`}
+    </div>`;
+  }).join("");
+
+  /* На телефоне отправленные заказы свёрнуты в одну строку: кальянщик их уже
+     отправил, дожидаться одобрения ему незачем — ему работать. Тап разворачивает. */
+  const foldForPhone = isPhone && queue.length && !ordersOpen;
+  const shownOrders = foldForPhone ? [] : (ordersOpen ? queue : queue.slice(0, 6));
+  $("orders").innerHTML = foldForPhone
+    ? `<button class="ord-fold" data-ordmore="1">
+         <span class="cnt">${queue.length}</span>
+         <span>${queue.length === 1 ? "заказ ждёт стойку" : "заказов ждут стойку"}</span>
+         <span class="chev">показать</span></button>`
+    : shownOrders.map(o => {
+    const mins = Math.max(0, Math.round((nowMs() - (o.ts || nowMs())) / 60000));
+    const dt = new Date(o.ts || nowMs());
+    const when = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+    /* Подсвечиваем ОДИН заказ — самый давний. Если красить все, что ждут
+       дольше пяти минут, в запару загорается вся очередь и подсказка теряется. */
+    const long = (o.id === queue[0]?.id && mins >= 5) ? " waiting-long" : "";
+    const text = esc(o.text || "на усмотрение кальянщика");
+    if (openOrder !== o.id) {
+      return `<div class="ord-slim${long}" data-ordopen="${esc(o.id)}">
+        <span class="num">${esc(o.table ?? "—")}</span>
+        <span class="txt">${text}</span>
+        <span class="age">${mins < 1 ? "сейчас" : mins + " мин"}</span>
+      </div>`;
+    }
+    return `<div class="notice${long}" data-ordopen="${esc(o.id)}">
+      <div class="num">${esc(o.table ?? "—")}</div>
+      <div class="txt"><b>${text}</b>
+        <span class="meta"><span class="age" style="align-self:flex-start">${mins < 1 ? "только что" : `ждёт ${mins} мин`}</span>
+        <span class="when">${when}${o.by ? " · " + esc(o.by) : ""}</span></span></div>
+      ${isPhone ? '<span class="wait">ждёт планшета</span>'
+                : `<button class="take" data-take="${esc(o.id)}">В работу</button>`}
+    </div>`;
+  }).join("") + (queue.length > shownOrders.length
+    ? `<button class="ordmore" data-ordmore="1">ещё ${queue.length - shownOrders.length} в очереди</button>`
+    : (ordersOpen ? `<button class="ordmore" data-ordmore="0">свернуть</button>` : ""));
+
+  /* Заказ помечает КОНКРЕТНУЮ чашу, а не весь стол: на столе с тремя чашами
+     метка «заказ» висела на всех, и было непонятно, какая новая.
+     Считаем нужной ту чашу, что появилась после заказа и позже остальных. */
+  const orderBy = {};                 // стол → заказ (для свободных столов)
+  const orderHid = {};                // id чаши → заказ
+  for (const o of allOrders) {
+    orderBy[String(o.table)] = o;
+    const t = tables[String(o.table)];
+    if (!t) continue;
+    const after = (t.hookahs || []).filter(h => (h.startedAt || 0) >= (o.ts || 0) - 60000);
+    const target = after.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))[0];
+    if (target) orderHid[target.id] = o;
+  }
+
+  if (waiter) return renderWaiter();
+  // чеки — только барный экран: у стойки и кальянщика их быть не должно
+  $("checksHd").classList.add("hide");
+  $("checks").classList.add("hide");
+  $("freeHd").classList.remove("hide");
+  const filt0 = $("filters"); if (filt0) filt0.classList.remove("hide");
+
+  const phone = mode === "phone";
+  $("rows").classList.toggle("hide", !phone);
+  $("busy").classList.toggle("hide", phone);
+  $("bottom").classList.toggle("hide", !phone);
+
+  /* Телефон: строка на каждую чашу. Номер стола печатается только у первой
+     чаши — у второй и третьей вместо него «чаша 2/3», чтобы не рябило. */
+  if (phone) {
+    /* Лента задач: единица — чаша, не стол. Строки идут строго по срочности,
+       первая строка и есть то, к чему идти. Стол — подпись слева. */
+    /* Фильтр отбирает ЧАШИ, а не столы. Раньше стол попадал в «Срочные» из-за
+       одной горящей чаши и тащил за собой две спокойные — при полном зале
+       лента снова становилась длинной. */
+    let feed = [];
+    for (const k of nums) {
+      const t = { n: k, ...tables[k] };
+      t.hookahs.forEach((h, i) => {
+        feed.push({ t, h, cup: t.hookahs.length > 1 ? `${i + 1}-я чаша` : "", left: hookahLeft(h) });
+      });
+    }
+    feed.sort((a, b) => a.left - b.left);
+    feed = keepOrder(feed, (f) => f.h.id, lastFeedOrder);
+    if (Date.now() >= orderFreeze) lastFeedOrder = feed.map(f => f.h.id);
+    let feedHidden = 0;
+    if (listFilter === "urgent") {
+      const hot = feed.filter(f => f.left < 300 || justTouched(f.t.n));
+      if (hot.length) { feedHidden = feed.length - hot.length; feed = hot; }
+    }
+    if (listFilter === "num") feed = feed.slice().sort((a, b) => (+a.t.n - +b.t.n) || (a.left - b.left));
+
+    let html = "";
+    for (const f of feed) {
+      const { t, h, left } = f;
+      const tn = tone(left, h.round);
+      const isFinal = isFinalRound(h.round);
+      const a = armed[h.id];
+      const label = isFinal ? "закрыть" : "угли";
+      const cls = "act" + (a === "tap" ? " armed" : isFinal ? " fin" : "");
+      /* Круг показываем ВСЕГДА: раньше его вытесняла забивка, и кальянщик
+         не понимал, какой круг идёт. Забивка — второй строкой, если есть. */
+      const bld = h.build || {};
+      const fill = [bld.brand, bld.flavor].filter(Boolean).join(" ");
+      const round = isFinal ? `финальный круг · ${rounds.length} из ${rounds.length}`
+                            : `круг ${h.round} из ${rounds.length}`;
+      const ord2 = orderHid[h.id];
+      const u = urgency(left);
+      html += `<div class="row u-${u}${a === "tap" ? " armed" : ""}" data-rowdo="${isFinal ? "finish" : "tap"}" data-rown="${t.n}" data-rowhid="${h.id}"
+          style="${u === "calm" ? "" : `border-color:rgba(${TINT[tn]},.5);background:linear-gradient(rgba(${TINT[tn]},.12),rgba(${TINT[tn]},.12)),var(--surface)`}">
+        <span class="bar" style="background:${COLOR[tn]}"></span>
+        <span class="who">
+          <span class="wl"><b>Стол ${esc(t.n)}</b>${ord2 ? '<i class="mark">заказ</i>' : ""}</span>
+          ${f.cup ? `<small>${esc(f.cup)}</small>` : ""}
+        </span>
+        <span class="tmw"><span class="tm" data-tmhid="${h.id}" style="color:${COLOR[tn]}">${mmss(left)}</span>
+          ${segs(h, tn)}
+          <span class="rd">${esc(round)}${fill ? ` · ${esc(fill)}` : ""}${byWho(t.n)}</span></span>
+        <button class="${cls} b-${u}" data-n="${t.n}" data-hid="${h.id}" data-do="${isFinal ? "finish" : "tap"}">${label}</button>
+        <button class="x${armed[h.id] === "close" ? " armed" : ""}" data-n="${t.n}" data-hid="${h.id}"
+          data-do="removeHookah">${armed[h.id] === "close" ? "✓" : "✕"}</button>
+      </div>`;
+    }
+    /* Спокойные не прячем молча: смена должна видеть, что за лентой ещё
+       что-то есть, иначе пустой низ экрана читается как «всё сделано». */
+    if (feedHidden) html += `<div class="feedrest">Ещё ${feedHidden} ${feedHidden === 1 ? "чаша" : feedHidden < 5 ? "чаши" : "чаш"} в норме · «Все»</div>`;
+    $("rows").innerHTML = html || `<div class="empty">Ни одного запущенного кальяна.</div>`;
+  }
+
+  $("busy").innerHTML = busyList.map(t => {
+    const tones = t.hookahs.map(h => tone(hookahLeft(h), h.round));
+    const worst = ["late", "soon", "final", "ok"].find(x => tones.includes(x)) || "ok";
+    const rows = t.hookahs.map(h => {
+      const left = hookahLeft(h);
+      const tn = tone(left, h.round);
+      const isFinal = isFinalRound(h.round);
+      const a = armed[h.id];
+      const label = isFinal ? "закрыть" : "угли";
+      const cls = "act" + (a === "tap" ? " armed" : isFinal ? " fin" : "");
+      const bld = h.build || {};
+      const fill = [bld.brand, bld.flavor].filter(Boolean).join(" ");
+      const sub = (isFinal ? `финальный круг · ${rounds.length} из ${rounds.length}`
+                           : `круг ${h.round} из ${rounds.length}`) + (fill ? ` · ${fill}` : "");
+      return `<div class="hk${a === "tap" ? " armed" : ""}" data-rowdo="${isFinal ? "finish" : "tap"}" data-rown="${t.n}" data-rowhid="${h.id}">
+        <span class="d" style="background:${COLOR[tn]}"></span>
+        <span class="i"><span class="t" data-tmhid="${h.id}" style="color:${COLOR[tn]}">${mmss(left)}</span>
+        ${segs(h, tn)}
+        <span class="r">${orderHid[h.id] ? "заказ · " : ""}${esc(sub)}${byWho(t.n)}</span></span>
+        <button class="${cls} b-${urgency(left)}" data-n="${t.n}" data-hid="${h.id}" data-do="${isFinal ? "finish" : "tap"}">${label}</button>
+        <button class="close${armed[h.id] === "close" ? " armed" : ""}" data-n="${t.n}" data-hid="${h.id}"
+          data-do="removeHookah">${armed[h.id] === "close" ? "✓" : "✕"}</button>
+      </div>`;
+    }).join("");
+    const ord = orderBy[String(t.n)];
+    const uu = urgency(Math.min(...t.hookahs.map(hookahLeft)));
+    return `<div class="tbl u-${uu}" data-tablelong="${t.n}" data-firsthid="${(t.hookahs[0] || {}).id || ""}"
+        style="${uu === "calm" ? "" : `border-color:rgba(${TINT[worst]},.45);background:linear-gradient(rgba(${TINT[worst]},.10),rgba(${TINT[worst]},.10)),var(--surface)`}">
+      <div class="th"><span class="n">${esc(t.n)}</span>
+        ${t.hookahs.length > 1 ? `<span class="cnt">${t.hookahs.length} чаши</span>` : ""}
+        ${(t.hookahs || []).some(x => orderHid[x.id]) ? `<span class="ord">заказ</span>` : ""}
+        <span class="sp"></span>
+        <span class="worst" style="color:${COLOR[worst]}">${mmss(Math.min(...t.hookahs.map(hookahLeft)))}</span>
+        <button class="add" data-n="${t.n}" data-do="add">+</button></div>
+      ${rows}</div>`;
+  }).join("") || `<div class="empty">Ни одного запущенного кальяна.</div>`;
+
+  const free = [];
+  for (let i = 1; i <= total; i++) if (!nums.includes(String(i))) free.push(i);
+  document.querySelectorAll(".hd")[1].classList.toggle("hide", phone);
+  $("free").classList.toggle("hide", phone);
+  /* На плитке — только номер и метка «заказ». Текст забивки читать не здесь:
+     он длинный, обрывается и превращает сетку в кашу. */
+  $("free").innerHTML = free.map(n => {
+    const o = orderBy[String(n)];      // стол свободен — значит заказ ещё не поставлен
+    return `<button data-n="${n}" data-do="start" class="${o ? "waiting" : ""}">${n}${
+      o ? '<i class="mark">заказ</i>' : ""}</button>`;
+  }).join("");
+  paintFlash();                        // разметка новая — вернуть вспышку на место
+}
+
+/* Действия с подтверждением: первый тап взводит, второй выполняет.
+   Так случайное касание не сбивает круг и не закрывает чужой кальян. */
+document.addEventListener("click", (e) => {
+  // после долгого нажатия браузер шлёт click — он не должен взводить действие
+  if (longFired) { longFired = false; return; }
+
+  const f = e.target.closest("[data-f]");
+  if (f) { listFilter = f.dataset.f; localStorage.setItem("pult.newui.filter", listFilter); render(); return; }
+
+  const oo = e.target.closest("[data-ordopen]");
+  if (oo && !e.target.closest("[data-take]")) {
+    openOrder = openOrder === oo.dataset.ordopen ? null : oo.dataset.ordopen;
+    render();
+    return;
+  }
+
+  const wt = e.target.closest("[data-waiter]");
+  if (wt) { openTable(+wt.dataset.waiter); return; }
+
+  const ack = e.target.closest("[data-callack]");
+  if (ack) { callAct(ack.dataset.callack, "/api/ack", "Иду к столу"); return; }
+  const cdone = e.target.closest("[data-calldone]");
+  if (cdone) { callAct(cdone.dataset.calldone, "/api/done", "Вызов закрыт"); return; }
+
+  const take = e.target.closest("[data-take]");
+  if (take) { takeOrder(take.dataset.take); return; }
+  const om = e.target.closest("[data-ordmore]");
+  if (om) { ordersOpen = om.dataset.ordmore === "1"; render(); return; }
+
+  const more = e.target.closest("[data-msgmore]");
+  if (more) { msgsOpen = more.dataset.msgmore === "1"; render(); return; }
+
+  const seen = e.target.closest("[data-seen]");
+  if (seen) {
+    const id = seen.dataset.seen;
+    msgs = msgs.filter(m => m.id !== id);
+    seenMsgs.add(id);
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...seenMsgs].slice(-200)));
+    render();
+    return;
+  }
+
+  /* Тап по всей строке кальяна работает как «угли»: попасть в строку проще,
+     чем в кнопку, особенно на бегу. Подтверждение то же — второй тап. */
+  const b = e.target.closest("[data-do]") || (() => {
+    const row = e.target.closest("[data-rowdo]");
+    if (!row) return null;
+    return { dataset: { n: row.dataset.rown, hid: row.dataset.rowhid, do: row.dataset.rowdo } };
+  })();
+  if (!b) return;
+  const n = b.dataset.n, hid = b.dataset.hid, what = b.dataset.do;
+
+  if (what === "start") { act(+n, "tap"); return; }
+  if (what === "add") { act(+n, "add"); return; }
+
+  /* Строго ДВОЙНОЕ нажатие: два тапа подряд, не дольше 450 мс между ними.
+     Прежняя схема «первый тап взводит на 3 секунды» срабатывала и от двух
+     случайных касаний с паузой — круг продлевался сам собой. */
+  const kind = what === "removeHookah" ? "close" : "tap";
+  const key = hid + ":" + kind;
+  const now = Date.now();
+  /* 800 мс, а не 450: на ходу, с занятыми руками «мышиный» дабл-клик по стеклу
+     не получается, а случайное касание в такое окно всё равно не попадёт. */
+  if (lastTap.key === key && now - lastTap.at < 800) {
+    lastTap = { key: "", at: 0 };
+    delete armed[hid];
+    act(+n, what, hid);
+    render();
+    return;
+  }
+  lastTap = { key, at: now };
+  armed[hid] = kind;                       // короткая подсветка — видно, что тап засчитан
+  setTimeout(() => {
+    if (armed[hid] === kind && Date.now() - lastTap.at >= 800) { delete armed[hid]; render(); }
+  }, 850);
+  render();
+});
+
+// ---------- режимы: планшет на стойке / телефон кальянщика ----------
+/* Вид определяет РОЛЬ, а не ручной выбор. Переключатель «Планшет / Телефон»
+   был нужен, пока обкатывали оба вида на одном устройстве; в рабочей версии
+   он только сбивает: смена может случайно переключить стойку в телефон.
+   Стойка — плитки, кальянщик — лента, официант — карта. */
+const MODE_KEY = "pult.newui.mode";
+localStorage.removeItem(MODE_KEY);          // старый ручной выбор больше не учитывается
+function modeForRole(role) {
+  if (role === "waiter") return "waiter";
+  if (role === "device") return "tablet";                       // планшет стойки — всегда плитки
+  if (role === "admin") return window.innerWidth < 820 ? "phone" : "tablet";
+  if (role === "master") return "phone";                        // кальянщик работает с телефона
+  return window.innerWidth < 820 ? "phone" : "tablet";          // до входа роли ещё нет
+}
+let mode = modeForRole("");
+function applyMode() { render(); }
+
+// ---------- шторка «забить стол» ----------
+/* Часто повторяющиеся фразы. Готовые кнопки покрывают общее, а у каждой точки
+   свои присказки: «как обычно 12-му», «покрепче, без льда». Запоминаем то, что
+   человек реально отправлял, и поднимаем наверх по частоте — со второго раза
+   фраза уже жмётся одной кнопкой. Хранится на устройстве: это привычки смены,
+   серверу они не нужны. */
+const PHRASES_KEY = "pult.newui.phrases";
+const PHRASES_MAX = 10;
+function loadPhrases() {
+  try { return JSON.parse(localStorage.getItem(PHRASES_KEY)) || {}; } catch (e) { return {}; }
+}
+function rememberPhrase(kind, text) {
+  const t = String(text || "").trim();
+  if (t.length < 3 || t.length > 120) return;          // мусор и простыни не запоминаем
+  const all = loadPhrases();
+  const list = all[kind] || [];
+  const key = t.toLowerCase();
+  const hit = list.find(x => x.t.toLowerCase() === key);
+  if (hit) { hit.n = (hit.n || 1) + 1; hit.ts = Date.now(); }
+  else list.push({ t, n: 1, ts: Date.now() });
+  // сначала частые, при равной частоте — свежие
+  list.sort((a, b) => (b.n - a.n) || (b.ts - a.ts));
+  all[kind] = list.slice(0, PHRASES_MAX);
+  try { localStorage.setItem(PHRASES_KEY, JSON.stringify(all)); } catch (e) {}
+}
+function topPhrases(kind, limit) {
+  const list = (loadPhrases()[kind] || []).slice(0, limit || 6);
+  return list.filter(x => (x.n || 1) >= 2);            // показываем только то, что повторялось
+}
+function renderPhrases(wrapId, boxId, kind) {
+  const list = topPhrases(kind);
+  const wrap = $(wrapId); if (!wrap) return;
+  wrap.classList.toggle("hide", !list.length);
+  $(boxId).innerHTML = list.map(x => `<button data-ph="${esc(x.t)}">${esc(x.t)}</button>`).join("");
+}
+
+const QUICK = ["Двойное яблоко", "Мята", "Ягоды", "Цитрус", "Покрепче", "Полегче", "Лёд", "На усмотрение"];
+let pickTable = null, pickChips = [], recent = [];
+async function loadRecent() {
+  try {
+    const d = await (await api("/api/orders")).json();
+    // уникальные тексты, самые свежие сверху, без пустых «на усмотрение»
+    const seen = new Set(); const out = [];
+    for (const o of d.orders || []) {
+      const t = (o.text || "").trim();
+      if (!t || seen.has(t.toLowerCase())) continue;
+      seen.add(t.toLowerCase());
+      out.push({ text: t, table: o.table });
+      if (out.length >= 3) break;   // больше трёх — это уже список, а не подсказка
+    }
+    recent = out;
+  } catch (e) { recent = []; }
+  renderRecent();
+}
+function renderRecent() {
+  $("recentWrap").classList.toggle("hide", !recent.length);
+  $("recent").innerHTML = recent.map((r, i) =>
+    `<button data-recent="${i}"><b>№${esc(r.table)}</b>${esc(r.text)}</button>`).join("");
+}
+
+function openSheet() {
+  pickTable = null; pickChips = [];
+  loadRecent();
+  $("note").value = "";
+  $("chips").innerHTML = QUICK.map(q => `<button data-q="${q}">${q}</button>`).join("");
+  renderPick();
+  $("scrim").classList.add("on"); $("sheet").classList.add("on");
+}
+function closeSheet() { $("scrim").classList.remove("on"); $("sheet").classList.remove("on"); }
+/* Два шага в одной шторке: пока стол не выбран — только сетка;
+   выбрал — сетка сворачивается в строку, и сразу видно, что забить.
+   Раньше до вкусов и кнопки приходилось прокручивать через все сорок столов. */
+function renderPick() {
+  renderPhrases("freqWrap", "freq", "order");
+  /* Занятые столы красим по КРУГУ и показываем остаток — как в Стамбуле:
+     1-й круг оранжевый, 2-й зелёный, финальный синий, просрочка красная.
+     Раньше занятый стол был просто серым, и выбирая, куда забить, кальянщик
+     не видел ни того, на каком круге соседи, ни того, где вот-вот освободится. */
+  let html = "";
+  for (let i = 1; i <= (tablesCount || 0); i++) {
+    const list = (tables[String(i)] || {}).hookahs || [];
+    const isBusy = list.length > 0;
+    let tn = null, left = null;
+    if (isBusy) {
+      // берём САМУЮ срочную чашу стола: она и определяет цвет
+      const worst = list.reduce((a, b) => hookahLeft(a) <= hookahLeft(b) ? a : b);
+      left = hookahLeft(worst); tn = tone(left, worst.round);
+    }
+    const st = isBusy && i !== pickTable
+      ? ` style="background:rgba(${TINT[tn]},.14);box-shadow:inset 0 0 0 1.5px rgba(${TINT[tn]},.5);color:${COLOR[tn]}"`
+      : "";
+    html += `<button data-p="${i}" class="${i === pickTable ? "on" : ""}${isBusy ? " busy" : ""}"${st}>${i}${
+      isBusy ? `<i class="pt" data-tmhid="${worst.id}">${mmss(left)}</i>` : ""}</button>`;
+  }
+  $("pick").innerHTML = html;
+
+  const chosen = !!pickTable;
+  $("picked").classList.toggle("hide", !chosen);
+  $("pickWrap").classList.toggle("hide", chosen);
+  $("whatWrap").classList.toggle("hide", !chosen);
+  $("pickedNum").textContent = "Стол " + (pickTable || "—");
+  $("shLead").textContent = chosen
+    ? "Отметьте, что забить, или отправьте на усмотрение кальянщика."
+    : "Выберите стол — потом отметите, что забить.";
+  $("shSend").disabled = !chosen;
+}
+$("btnFill").onclick = openSheet;
+$("shCancel").onclick = closeSheet;
+$("scrim").onclick = closeSheet;
+$("pick").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-p]"); if (!b) return;
+  pickTable = +b.dataset.p;
+  renderPick();
+  $("sheet").scrollTop = 0;
+});
+$("pickAgain").onclick = () => { pickTable = null; renderPick(); };
+/* Частая фраза подставляется в поле целиком — дальше правится руками. */
+$("freq").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ph]"); if (!b) return;
+  $("note").value = b.dataset.ph;
+  pickChips = [];                                   // фраза заменяет отмеченные вкусы
+  [...$("chips").querySelectorAll("button")].forEach(x => x.classList.remove("on"));
+  $("note").focus();
+});
+$("recent").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-recent]"); if (!b) return;
+  const r = recent[+b.dataset.recent];
+  if (!r) return;
+  $("note").value = r.text;      // подставляем — дальше правится как обычный текст
+  pickChips = [];
+  [...$("chips").querySelectorAll("button")].forEach(x => x.classList.remove("on"));
+  $("note").focus();
+});
+
+$("chips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-q]"); if (!b) return;
+  const q = b.dataset.q;
+  if (pickChips.includes(q)) pickChips = pickChips.filter(x => x !== q); else pickChips.push(q);
+  b.classList.toggle("on");
+});
+$("shSend").onclick = async () => {
+  if (!pickTable) return;
+  const text = [...pickChips, $("note").value.trim()].filter(Boolean).join(", ");
+  try {
+    const r = await api("/api/order", { method: "POST",
+      body: JSON.stringify({ table: pickTable, text: text || "на усмотрение кальянщика" }) });
+    const d = await r.json();
+    if (d.ok) { closeSheet(); toast("Отправлено на планшет", `Стол ${pickTable} · ${text || "на усмотрение"}`); poll(); }
+    else toast("Не отправилось", d.error || "", true);
+  } catch (e) { toast("Нет связи с точкой", "", true); }
+};
+
+/* Клавиатура iOS не меняет размер страницы — о ней сообщает только
+   visualViewport. Считаем её высоту и поднимаем шторку ровно на столько,
+   чтобы поле ввода и кнопка «Отправить» остались на виду. */
+const vv = window.visualViewport;
+function syncKeyboard() {
+  if (!vv) return;
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  document.documentElement.style.setProperty("--kb", Math.round(kb) + "px");
+}
+if (vv) {
+  vv.addEventListener("resize", syncKeyboard);
+  vv.addEventListener("scroll", syncKeyboard);
+  syncKeyboard();
+}
+// при фокусе подтягиваем само поле в видимую часть шторки
+$("note").addEventListener("focus", () => {
+  setTimeout(() => {
+    syncKeyboard();
+    $("note").scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 250);
+});
+
+// ---------- детали по долгому нажатию ----------
+const hhmm = (ts) => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+let clearArmed = 0;                              // взвод «закрыть весь стол»
+const closeInfo = () => {
+  $("scrimInfo").classList.remove("on"); $("infoSheet").classList.remove("on");
+  // взвод не должен пережить закрытие шторки: вернулся — подтверждай заново
+  clearArmed = 0;
+  $("infoClear").textContent = "Закрыть весь стол";
+  $("infoClear").classList.remove("armed");
+};
+$("infoClose").onclick = closeInfo;
+$("scrimInfo").onclick = closeInfo;
+
+/* Пересадка: гости перешли на другой стол — кальян уезжает вместе с кругом
+   и таймером. Раньше пришлось бы закрыть и завести заново, потеряв круги. */
+$("infoMove").onclick = () => {
+  if (!infoFor) return;
+  moveOpen = !moveOpen;
+  $("moveWrap").classList.toggle("hide", !moveOpen);
+  $("infoMove").textContent = moveOpen ? "Отмена пересадки" : "Пересадить";
+  if (!moveOpen) return;
+  const busyNums = Object.keys(tables).filter(k => (tables[k].hookahs || []).length);
+  let html = "";
+  for (let i = 1; i <= (tablesCount || 0); i++) {
+    if (String(i) === String(infoFor.n)) continue;
+    const isBusy = busyNums.includes(String(i));
+    html += `<button data-move="${i}" class="${isBusy ? "busy" : ""}"${isBusy ? " disabled" : ""}>${i}</button>`;
+  }
+  $("movePick").innerHTML = html;
+};
+
+/* Действия по столу собраны в одном месте: раньше закрыть чашу можно было
+   только крестиком в строке, а закрыть стол целиком — вообще нечем. */
+$("infoFinish").onclick = async () => {
+  if (!infoFor) return;
+  const { n, hid } = infoFor;
+  closeInfo();
+  await act(+n, "removeHookah", hid);
+};
+/* «Закрыть весь стол» уносит до трёх чаш разом и одним тапом. Это самое
+   дорогое действие в пульте, поэтому оно требует второго нажатия и вслух
+   называет, что именно закрывает. */
+$("infoClear").onclick = async () => {
+  if (!infoFor) return;
+  const { n } = infoFor;
+  const cups = ((tables[String(n)] || {}).hookahs || []).length;
+  if (Date.now() - clearArmed > 3000) {
+    clearArmed = Date.now();
+    $("infoClear").textContent = `Закрыть стол ${n}: ${cups} ${cups === 1 ? "чашу" : cups < 5 ? "чаши" : "чаш"} — нажмите ещё раз`;
+    $("infoClear").classList.add("armed");
+    setTimeout(() => {
+      if (Date.now() - clearArmed >= 3000) {
+        $("infoClear").textContent = "Закрыть весь стол";
+        $("infoClear").classList.remove("armed");
+      }
+    }, 3100);
+    return;
+  }
+  clearArmed = 0;
+  $("infoClear").textContent = "Закрыть весь стол";
+  $("infoClear").classList.remove("armed");
+  closeInfo();
+  try {
+    const r = await api("/api/table", { method: "POST",
+      body: JSON.stringify({ n: +n, action: "clear", op: opId() }) });
+    const d = await r.json();
+    if (d.ok) { if (d.tables) tables = d.tables; holdOrder(); canUndo = true; toast("Стол закрыт", `Стол ${n}`, false, true); }
+    else toast("Не вышло закрыть", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+  poll();
+};
+
+$("moveBanner").addEventListener("click", async (e) => {
+  const ok = e.target.closest("[data-mvack]");
+  if (ok) { ackMove(ok.dataset.mvack); render(true); return; }
+  const back = e.target.closest("[data-mvback]");
+  if (!back) return;
+  back.disabled = true;
+  try {
+    const r = await api("/api/table", { method: "POST", body: JSON.stringify({
+      n: +back.dataset.from, action: "move", to: +back.dataset.to, op: opId() }) });
+    const d = await r.json();
+    if (d.ok) {
+      if (d.tables) tables = d.tables;
+      ackMove(back.dataset.mvback);
+      toast("Вернули обратно", `Стол ${back.dataset.from} → ${back.dataset.to}`);
+    } else { back.disabled = false; toast("Не вышло вернуть", d.error || "", true); }
+  } catch (err) { back.disabled = false; toast("Нет связи", "", true); }
+  poll();
+});
+
+$("stuckBanner").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-stuck]");
+  if (!b) return;
+  const x = stuck.find(v => v.id === b.dataset.stuck);
+  if (!x) return;
+  b.disabled = true;
+  try {
+    const busy = tables[String(x.n)] && (tables[String(x.n)].hookahs || []).length;
+    const r = await api("/api/table", { method: "POST", body: JSON.stringify({
+      n: +x.n, action: busy ? "add" : "tap",
+      build: x.text ? { flavor: String(x.text).slice(0, 60) } : undefined,
+      op: opId(),
+    }) });
+    const d = await r.json();
+    if (d.ok) {
+      stuck = stuck.filter(v => v.id !== x.id);
+      if (d.tables) tables = d.tables;
+      holdOrder();
+      toast("Кальян в работе", `Стол ${x.n}`);
+    } else { b.disabled = false; toast("Не вышло завести", d.error || "", true); }
+  } catch (err) { b.disabled = false; toast("Нет связи", "", true); }
+  poll();
+});
+
+$("movePick").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-move]");
+  if (!b || b.disabled || !infoFor) return;
+  const to = +b.dataset.move;
+  const from = infoFor.n;
+  closeInfo();
+  try {
+    const r = await api("/api/table", { method: "POST",
+      body: JSON.stringify({ n: +from, action: "move", to, op: opId() }) });
+    const d = await r.json();
+    if (d.ok) { if (d.tables) tables = d.tables; holdOrder(); toast("Гости пересели", `Стол ${from} → ${to}`); canUndo = true; }
+    else toast("Не вышло пересадить", d.error || "", true);
+  } catch (err) { toast("Нет связи", "", true); }
+  poll();
+});
+
+let infoFor = null, moveOpen = false;
+function showInfo(n, hid) {
+  infoFor = { n, hid };
+  moveOpen = false;
+  $("moveWrap").classList.add("hide");
+  $("infoMove").textContent = "Пересадить";
+  const t = tables[String(n)];
+  if (!t) return;
+  const list = t.hookahs || [];
+  const h = list.find(x => x.id === hid) || list[0];
+  if (!h) return;
+  const idx = list.indexOf(h) + 1;
+  const bld = h.build || {};
+  const fill = [bld.brand, bld.flavor].filter(Boolean).join(" ");
+  const left = hookahLeft(h);
+  const ord = allOrders.find(o => String(o.table) === String(n));
+
+  $("infoTitle").textContent = `Стол ${n}` + (list.length > 1 ? ` · чаша ${idx} из ${list.length}` : "");
+  $("infoLead").textContent = isFinalRound(h.round) ? "Финальный круг" : `Идёт круг ${h.round} из ${rounds.length}`;
+
+  const rows = [
+    ["Забивка", fill || "не записана"],
+    ["Жар", bld.heat ? String(bld.heat) : "—"],
+    ["Кальян запущен", h.startedAt ? hhmm(h.startedAt) : "—"],
+    ["Текущий круг начат", h.roundStart ? hhmm(h.roundStart) : "—"],
+    ["Длительность круга", (h.plan || rounds[h.round - 1] || "—") + " мин"],
+    ["Осталось", mmss(left) + (left < 0 ? " · просрочен" : "")],
+  ];
+  if (ord) {
+    rows.push(["Заказ из зала", ord.text || "на усмотрение"]);
+    rows.push(["Заказал", `${ord.by || "—"} · ${hhmm(ord.ts)}`]);
+    if (ord.takenBy) rows.push(["Принял", `${ord.takenBy} · ${hhmm(ord.takenTs || ord.ts)}`]);
+  }
+  $("infoBody").innerHTML = rows.map(([k, v]) =>
+    `<div class="r"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join("");
+  $("scrimInfo").classList.add("on"); $("infoSheet").classList.add("on");
+}
+
+/* Долгое нажатие ~550 мс. Двойной тап при этом не срабатывает: при удержании
+   мы сбрасываем счётчик тапов, иначе отпускание засчиталось бы как второй тап. */
+let pressTimer = null, pressed = null, longFired = false;
+const startPress = (e) => {
+  if (e.target.closest("button")) return;
+  /* Зажать можно и строку чаши, и карточку стола целиком: на планшете рука
+     чаще попадает в свободное место карточки, а не точно в строку. */
+  const row = e.target.closest("[data-rowdo]");
+  const card = row ? null : e.target.closest("[data-tablelong]");
+  if (!row && !card) return;
+  longFired = false;
+  pressed = row
+    ? { n: row.dataset.rown, hid: row.dataset.rowhid, x: e.clientX, y: e.clientY }
+    : { n: card.dataset.tablelong, hid: card.dataset.firsthid, x: e.clientX, y: e.clientY };
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(() => {
+    lastTap = { key: "", at: 0 };
+    longFired = true;                  // гасим click, который придёт после отпускания
+    if (navigator.vibrate) navigator.vibrate(12);
+    showInfo(pressed.n, pressed.hid);
+    pressed = null;
+  }, 550);
+};
+const cancelPress = () => { clearTimeout(pressTimer); pressed = null; };
+document.addEventListener("pointerdown", startPress);
+document.addEventListener("pointerup", cancelPress);
+document.addEventListener("pointercancel", cancelPress);
+/* Палец на стекле всегда чуть плывёт. Отменяем удержание только при
+   осмысленном сдвиге — иначе долгое нажатие не срабатывало почти никогда. */
+document.addEventListener("pointermove", (e) => {
+  if (!pressed) return;
+  // на ходу палец дрожит: 12 пикселей срывали удержание почти всегда
+  if (Math.abs(e.clientX - pressed.x) > 24 || Math.abs(e.clientY - pressed.y) > 24) cancelPress();
+});
+
+/* Принять вызов и закрыть его. «Иду» видит официант и вторая смена —
+   гость понимает, что его услышали, а коллеги не бегут к тому же столу. */
+async function callAct(id, url, msg) {
+  try {
+    const r = await api(url, { method: "POST", body: JSON.stringify({ id }) });
+    const d = await r.json();
+    if (d.ok) { toast(msg); if (navigator.vibrate) navigator.vibrate(14); }
+    else toast("Не вышло", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+  poll();
+}
+
+/* ===== Установка на домашний экран =====
+   Пока нет платного сертификата, смена работает через PWA. У неё три отличия
+   от нативного приложения, и все три обходятся здесь:
+   1) вибрации на iOS нет вовсе — отклик даём вспышкой строки и звуком;
+   2) звук нельзя запустить до первого касания — «размораживаем» его на первом тапе;
+   3) safe-area в standalone считается иначе — учтено в отступах через env(). */
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+  || window.navigator.standalone === true;
+if (isStandalone) document.body.classList.add("pwa");
+
+let audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    g.gain.value = 0.0001; o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.01);
+  } catch (e) {}
+}
+document.addEventListener("pointerdown", unlockAudio, { once: true });
+
+/* Подсказка про установку — один раз, только в браузере на телефоне. */
+/* Подсказку показываем ПОСЛЕ входа: к этому моменту роль известна, и на
+   домашний экран ляжет правильная иконка, а не общая. */
+function maybeOfferInstall() {
+  if (isStandalone || !/iPhone|iPad|Android/i.test(navigator.userAgent)) return;
+  if (localStorage.getItem("pult.newui.installhint")) return;
+  const name = { waiter: "Официант", master: "Кальянщик" }[myRole] || "Стойка";
+  setTimeout(() => {
+    localStorage.setItem("pult.newui.installhint", "1");
+    toast(`Добавьте «${name}» на экран «Домой»`, "Поделиться → На экран «Домой» — иконка будет ваша");
+  }, 5000);
+}
+
+// ---------- вызовы официанта ----------
+let callTable = null;
+const closeCall = () => {
+  $("scrimCall").classList.remove("on"); $("callSheet").classList.remove("on");
+  // следующий вызов должен начинаться с выбора, а не с чужого недописанного текста
+  setTimeout(() => {
+    if (typeof callTextMode === "function") callTextMode(false);
+    const mw = document.getElementById("callMoveWrap"); if (mw) mw.classList.add("hide");
+    const cp = document.getElementById("callPick"); if (cp) cp.classList.remove("hide");
+  }, 200);
+};
+$("callCancel").onclick = closeCall;
+$("scrimCall").onclick = closeCall;
+async function sendCall(kind, label, comment) {
+  if (!callTable) return;
+  closeCall();
+  try {
+    const r = await api("/api/call", { method: "POST",
+      body: JSON.stringify({ table: callTable, kind, did: deviceId(),
+        ...(comment ? { comment: String(comment).slice(0, 200) } : {}) }) });
+    const d = await r.json();
+    if (d.ok) { toast("Кальянщик вызван", `Стол ${callTable} · ${label}`); if (navigator.vibrate) navigator.vibrate(16); }
+    else toast("Не отправилось", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+}
+$("callMaster").onclick = () => sendCall("master", "позвать кальянщика");
+$("callCoals").onclick = () => sendCall("coals", "заменить угли");
+
+/* Второй экран шторки вызова: официант пишет словами.
+   Два назначения на одном экране — вопрос кальянщику и заказ на бар.
+   Бар и официант у нас одна роль, поэтому заказ уходит тем же каналом,
+   что и сообщение на планшет стойки, только с номером стола в тексте. */
+const CALL_QUICK = ["Просят счёт", "Нужен лёд", "Долго не подходят",
+                    "Заменить чашу", "Просят потише", "Нужна пепельница"];
+const BAR_QUICK = ["Чай", "Кофе", "Морс", "Вода без газа", "Лимонад", "Счёт"];
+let callKind = "other";                            // "other" — вопрос, "bar" — заказ на бар
+/* Второй экран шторки — текст кальянщику. Заказ на бар живёт на первом:
+   бармен и официант думают позициями, а не формами. */
+function callTextMode(on) {
+  /* Экран «написать кальянщику» живёт внутри вкладки «Сервис»:
+     прячем список действий, показываем поле. */
+  $("callSvc").classList.toggle("hide", on);
+  $("callMoveWrap").classList.add("hide");
+  $("callOtherWrap").classList.toggle("hide", !on);
+  if (on) {
+    $("callMsg").value = "";
+    $("callChips").innerHTML = CALL_QUICK.map(q => `<button data-cq="${esc(q)}">${esc(q)}</button>`).join("");
+    setTimeout(() => $("callMsg").focus(), 60);
+  }
+}
+$("callOther").onclick = () => callTextMode(true);
+$("callBack").onclick = () => callTextMode(false);
+
+/* Пересадка гостей: занятые столы показываем, но нажать нельзя. */
+$("callMove").onclick = () => {
+  if (!callTable) return;
+  const busyNums = Object.keys(tables).filter(k => (tables[k].hookahs || []).length);
+  let html = "";
+  for (let i = 1; i <= (tablesCount || 0); i++) {
+    if (String(i) === String(callTable)) continue;
+    const busy = busyNums.includes(String(i));
+    html += `<button data-cmove="${i}" class="${busy ? "busy" : ""}"${busy ? " disabled" : ""}>${i}</button>`;
+  }
+  $("callMovePick").innerHTML = html;
+  $("callAdd").classList.add("hide");
+  $("callMoveWrap").classList.remove("hide");
+};
+/* Гости ушли — счёт стола закрывается. Кнопка внутри счёта, а не среди
+   сервисных действий: закрывают именно счёт, а не стол вообще. */
+
+$("callMovePick").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-cmove]");
+  if (!b || b.disabled || !callTable) return;
+  const from = callTable, to = +b.dataset.cmove;
+  closeCall();
+  try {
+    const r = await api("/api/table", { method: "POST",
+      body: JSON.stringify({ n: +from, action: "move", to, op: opId() }) });
+    const d = await r.json();
+    if (d.ok) { if (d.tables) tables = d.tables; holdOrder(); toast("Гости пересели", `Стол ${from} → ${to}`); }
+    else toast("Не вышло пересадить", d.error || "", true);
+  } catch (err) { toast("Нет связи", "", true); }
+  poll();
+});
+$("callChips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cq]"); if (!b) return;
+  const t = $("callMsg");
+  t.value = t.value.trim() ? t.value.trim() + ", " + b.dataset.cq.toLowerCase() : b.dataset.cq;
+  t.focus();
+});
+$("callMsgSend").onclick = () => {
+  const txt = $("callMsg").value.trim().slice(0, 200);
+  if (!txt) { $("callMsg").focus(); return; }
+  rememberPhrase("say", txt);
+  sendCall("other", txt, txt);
+};
+
+/* Отправка заказа: позиции этого стола уходят структурой на бар. */
+$("callSend").onclick = async () => {
+  if (!callTable) return;
+  const txt = $("callText").value.trim().slice(0, 200);
+  if (!barCart.length && !txt) { toast("Пустой заказ", "Отметьте позиции", true); return; }
+  const table = callTable;
+  const items = barCart.map(x => (x.n > 1 ? x.n + "× " : "") + x.name).join(" · ");
+  const sent = barCart.slice();          // closeCall чистит корзину — запоминаем до
+  /* На бар уходит по заказу на КАЖДОГО гостя: у заказа на сервере одно поле
+     guest, и слать всё одним чеком значило записать позиции двух гостей
+     одному. Бармен видит столько чеков, сколько гостей — так и считает счёт. */
+  const byGuest = new Map();
+  for (const x of sent) {
+    const g = x.guest || 0;
+    if (!byGuest.has(g)) byGuest.set(g, []);
+    byGuest.get(g).push(x);
+  }
+  if (!byGuest.size) byGuest.set(guestNow > 0 ? guestNow : 0, []);
+  /* Раньше шторка закрывалась, и официант оказывался на карте столов: заказ
+     ушёл, а куда — непонятно, «всё пропало». Теперь остаёмся в столе и
+     показываем счёт, где отправленное лежит со статусом «новый». */
+  barCart = []; cartOpen = false;
+  $("callText").value = "";
+  setTab("bill");
+  let bad = "";
+  try {
+    for (const [g, list] of byGuest) {
+      const r = await api("/api/bar", { method: "POST", body: JSON.stringify({
+        table, comment: txt, guest: g,
+        items: list.map(x => ({ n: x.n, name: x.name, price: x.prices[0] || 0, note: x.note || "" })) }) });
+      const d = await r.json();
+      if (!d.ok) { bad = d.error || "не принято"; continue; }
+      /* Сервер уже вернул созданный заказ — заводим его в местное состояние
+         сразу, а не ждём следующего опроса. На медленном канале опрос может
+         занять секунды, и «Итого по столу» показывало бы 0 ₽ у тебя же на
+         глазах сразу после собственной отправки. */
+      if (d.order) barOrders.push(d.order);
+    }
+    if (!bad) {
+      if (txt) rememberPhrase("bar", txt);
+      bumpFreq(sent.map(x => x.name));
+      const who = byGuest.size > 1 ? ` · ${byGuest.size} ${plural(byGuest.size, "чек", "чека", "чеков")} по гостям` : "";
+      toast("Заказ отправлен на бар", `Стол ${table} · ${(items || txt).slice(0, 60)}${who}`);
+      if (navigator.vibrate) navigator.vibrate(16);
+      renderBill(table);
+      poll();
+    } else toast("Не отправилось", bad, true);
+  } catch (e) { toast("Нет связи", "", true); }
+};
+let catBeforeSearch = null;
+$("cbSearch").addEventListener("input", () => {
+  barQuery = $("cbSearch").value;
+  if (barQuery) { if (barCat) catBeforeSearch = barCat; barCat = null; }
+  else barCat = catBeforeSearch || ((barMenu || [])[0] || {}).name || null;  // стёрли — вернулись в меню
+  renderBarCats(); renderBarList();
+});
+$("cbCats").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bc]"); if (!b) return;
+  /* Повторный тап по активной категории раньше СНИМАЛ выбор, и официант
+     оставался с лентой категорий и пустым экраном под ней — выглядело так,
+     будто позиции пропали. Без категории теперь остаться нельзя. */
+  barCat = b.dataset.bc;
+  barQuery = ""; $("cbSearch").value = "";
+  $("cbSearch").classList.add("hide"); $("cbFind").classList.remove("on");
+  renderBarCats(); renderBarList();
+});
+$("cbList").addEventListener("click", (e) => {
+  // тап по счётчику убавляет, тап по строке добавляет
+  const m = e.target.closest("[data-bminus]");
+  if (m) {
+    const nm = m.dataset.bminus;
+    let i = barCart.findIndex(x => x.name === nm && (x.guest || 0) === guestNow);
+    if (i < 0) i = barCart.findIndex(x => x.name === nm);
+    if (i >= 0 && --barCart[i].n <= 0) barCart.splice(i, 1);
+    renderBarCart(); return; }
+  const b = e.target.closest("[data-bi]"); if (!b) return;
+  pickFlash(b);
+  barAdd(b.dataset.bi, +b.dataset.bp || 0);
+});
+/* Подтверждение выбора глазами: на iPhone вибрации в браузере нет,
+   поэтому строка вспыхивает, а счётчик корзины подскакивает.
+   ⚠️ Добавление позиции ПЕРЕРИСОВЫВАЕТ список (у строки появляется счётчик),
+   и класс вспышки исчезал вместе со старым узлом. Поэтому помним, что
+   вспыхнуло, и красим заново в конце renderBarList — как это уже сделано
+   для вспышки строк ленты. */
+let pickKey = "", pickUntil = 0;
+function paintPick() {
+  if (!pickKey || Date.now() > pickUntil) return;
+  const el = document.querySelector(`#cbList [data-bi="${CSS.escape(pickKey)}"]`);
+  if (el) { el.classList.remove("tapped"); void el.offsetWidth; el.classList.add("tapped"); }
+}
+function pickFlash(el) {
+  pickKey = el.dataset.bi || ""; pickUntil = Date.now() + 400;
+  el.classList.remove("tapped"); void el.offsetWidth; el.classList.add("tapped");
+  const bar = $("dock");
+  if (bar) { bar.classList.remove("bump"); void bar.offsetWidth; bar.classList.add("bump");
+    setTimeout(() => bar.classList.remove("bump"), 200); }
+}
+
+/* Клавиатура на телефоне накрывает поле — та же поправка, что в забивке. */
+$("callText").addEventListener("focus", () => {
+  setTimeout(() => { syncKeyboard(); $("callText").scrollIntoView({ block: "center", behavior: "smooth" }); }, 250);
+});
+
+/* Сервер требует идентификатор устройства — заводим один раз на телефон. */
+function deviceId() {
+  let id = localStorage.getItem("pult.newui.did");
+  if (!id || !/^[a-f0-9]{16}$/.test(id)) {
+    id = [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem("pult.newui.did", id);
+  }
+  return id;
+}
+
+// ---------- сообщение на планшет ----------
+const SAY_QUICK = ["Нужен лёд", "Принести счёт", "Замена чаши", "Гость зовёт", "Нужны угли", "Подойдите в зал"];
+/* Одна шторка на двух адресатов: стойка и бар. Барный планшет — отдельный
+   экран, поэтому комментарий на бар помечается столом: бармену надо знать,
+   куда готовить. */
+let sayTo = "pult";                                // "pult" — стойке, "bar" — на бар
+let sayTable = null;
+const SAY_QUICK_BAR = ["Чай", "Кофе", "Морс", "Вода без газа", "Лимонад", "Счёт"];
+function openSay(to) {
+  sayTo = to === "bar" ? "bar" : "pult";
+  sayTable = null;
+  const bar = sayTo === "bar";
+  $("sayTitle").textContent = bar ? "Заказ на бар" : "Сообщение на планшет";
+  $("sayLead").textContent = bar
+    ? "Отметьте стол и позиции — заказ прилетит на планшет бармена."
+    : "Прилетит на планшет стойки — звонить и бегать не нужно.";
+  $("sayTableWrap").classList.toggle("hide", !bar);
+  if (bar) {
+    renderSayTable();
+    barCart = []; barCat = null; barQuery = ""; $("barSearch").value = "";
+    renderBarCart(); $("barList").innerHTML = "";
+    loadBarMenu().then(() => { renderBarCats(); renderBarList(); });
+  }
+  $("sayText").placeholder = bar ? "например: два морса и чайник чая" : "например: на 12 столе просят счёт";
+  $("sayChips").innerHTML = (bar ? SAY_QUICK_BAR : SAY_QUICK).map(q => `<button data-s="${esc(q)}">${esc(q)}</button>`).join("");
+  $("sayText").value = "";
+  renderPhrases("sayFreqWrap", "sayFreq", bar ? "bar" : "say");
+  $("scrimSay").classList.add("on"); $("saySheet").classList.add("on");
+}
+const closeSay = () => { $("scrimSay").classList.remove("on"); $("saySheet").classList.remove("on"); };
+/* ===== Меню бара =====
+   Позиции лежат рядом с пультом в menu.json (разобран из PDF-меню точки).
+   Официант либо ищет по названию, либо идёт по категориям; отмеченное
+   собирается в заказ и уходит бармену одной строкой с номером стола. */
+let barMenu = null, barCat = null, barCart = [], barQuery = "";
+/* Меню живёт в двух шторках: у кальянщика («На бар») и у официанта (тап по
+   столу). Чтобы не плодить второй экземпляр кода, отрисовка знает, куда рисует. */
+let barUI = { search: "barSearch", cats: "barCats", list: "barList",
+              cart: "barCart", cartWrap: "barCartWrap", sum: "barSum" };
+/* Планшет бара — принтер чеков: заказы на нём не забивают. Забивают в телефоне.
+   Разделяем по ширине: на планшете экран печатает, на телефоне — работает. */
+
+/* Меню лежит на устройстве. Канал до сервера рвётся и тормозит (рукопожатие
+   иногда 10 с), а пока menu.json едет, официант смотрит в пустой список и
+   думает, что позиции пропали. Поэтому: сначала отдаём сохранённое — экран
+   готов мгновенно, — а свежее подтягиваем следом и подменяем, если изменилось. */
+const MENU_KEY = "pult.newui.menu";
+async function loadBarMenu() {
+  if (barMenu) return barMenu;
+  try {
+    const saved = JSON.parse(localStorage.getItem(MENU_KEY) || "null");
+    if (saved && saved.length) barMenu = saved;
+  } catch (e) {}
+  const fresh = fetch("menu.json", { cache: "no-cache" })
+    .then(r => r.json())
+    .then(d => {
+      const cats = d.cats || [];
+      if (!cats.length) return;
+      const changed = JSON.stringify(cats) !== JSON.stringify(barMenu);
+      barMenu = cats;
+      try { localStorage.setItem(MENU_KEY, JSON.stringify(cats)); } catch (e) {}
+      if (changed && callTable) { renderBarCats(); renderBarList(); }
+    })
+    .catch(() => {});
+  if (barMenu) return barMenu;          // сохранённое есть — не ждём сеть
+  await fresh;
+  if (!barMenu) barMenu = [];
+  return barMenu;
+}
+const barKey = (c, i) => c + "|" + i.name;
+/* «Частое» — первая категория меню. Серверной статистики продаж пока нет
+   (барный контур запущен 27.08, в barorders.json единицы заказов), поэтому
+   частоту считает само устройство — ровно как частые фразы забивки.
+   Позиция попадает в «Частое» со ВТОРОГО раза: разовый заказ не должен
+   вытеснять то, что берут каждый день. */
+const FREQ_CAT = "★ Частое";
+const FREQ_KEY = "pult.newui.barfreq";
+function freqAll() {
+  try { return JSON.parse(localStorage.getItem(FREQ_KEY)) || {}; } catch (e) { return {}; }
+}
+function freqItems() {
+  const all = freqAll();
+  const names = Object.keys(all).filter(k => (all[k] || 0) >= 2)
+    .sort((a, b) => all[b] - all[a]).slice(0, 12);
+  const flat = barFlat();
+  return names.map(nm => flat.find(i => i.name === nm)).filter(Boolean);
+}
+function bumpFreq(names) {
+  const all = freqAll();
+  for (const nm of names) all[nm] = (all[nm] || 0) + 1;
+  try { localStorage.setItem(FREQ_KEY, JSON.stringify(all)); } catch (e) {}
+}
+/* Объём и цена идут парами: «600 мл / 1000 мл» + [450, 600].
+   Если объёмов меньше, чем цен, лишние цены отбрасываем — врать нельзя. */
+function volParts(i) {
+  const prices = i.prices || [];
+  if (prices.length < 2) return [{ vol: i.vol || "", price: prices[0] || 0 }];
+  const vols = String(i.vol || "").split("/").map(x => x.trim()).filter(Boolean);
+  return prices.slice(0, Math.max(1, vols.length)).map((p, k) => ({ vol: vols[k] || "", price: p }));
+}
+function barFlat() {
+  const out = [];
+  for (const c of barMenu || []) for (const it of c.items) out.push({ ...it, cat: c.name });
+  return out;
+}
+function renderBarCats() {
+  const cats = (barMenu || []).map(c => c.name);
+  if (freqItems().length) cats.unshift(FREQ_CAT);
+  /* Лента внизу и узкая: выбранная категория должна быть видна, иначе после
+     перерисовки непонятно, где ты находишься. */
+  setTimeout(() => {
+    const on = document.querySelector("#cbCats button.on");
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "center" });
+  }, 0);
+  $(barUI.cats).innerHTML = cats.map(c =>
+    `<button data-bc="${esc(c)}" class="${c === barCat ? "on" : ""}">${esc(c)}</button>`).join("");
+}
+function renderBarList() {
+  const q = barQuery.trim().toLowerCase();
+  let list;
+  if (q) list = barFlat().filter(i => i.name.toLowerCase().includes(q) || (i.desc || "").toLowerCase().includes(q));
+  else if (barCat === FREQ_CAT) list = freqItems();
+  else if (barCat) list = barFlat().filter(i => i.cat === barCat);
+  else {
+    /* Подстраховка: без поиска и без категории экран был пустым. Показываем
+       первую категорию меню — пустой список официанту не нужен никогда. */
+    const first = ((barMenu || [])[0] || {}).name;
+    if (first) { barCat = first; renderBarCats(); }
+    list = first ? barFlat().filter(i => i.cat === first) : [];
+  }
+  const box = $(barUI.list);
+  if (!list.length) {
+    box.innerHTML = `<div class="barempty">${
+      q ? "Ничего не нашлось"
+        : (barMenu && barMenu.length ? "Выберите категорию" : "Загружаю меню…")}</div>`;
+    return;
+  }
+  /* У чаёв и лимонадов два объёма с разными ценами. Показываем их отдельными
+     кнопками прямо в строке: выбор размера — это один тап, а не ещё одно окно.
+     Размер попадает в название позиции, чтобы бармен видел, что наливать. */
+  /* Счётчик показывает набранное ТЕКУЩИМ гостем: минус снимает именно его
+     позицию, иначе тап убирал бы чужую. */
+  const cartN = (nm) => {
+    const h = barCart.find(x => x.name === nm && (x.guest || 0) === guestNow);
+    return h ? h.n : 0;
+  };
+  box.innerHTML = list.slice(0, 60).map(i => {
+    const key = esc(barKey(i.cat, i));
+    const sizes = volParts(i);
+    if (sizes.length > 1) {
+      return `<div class="bmulti"><span class="bn">${esc(i.name)}</span>
+        <span class="bsz">${sizes.map((z, k) => {
+          const nm = z.vol ? `${i.name} ${z.vol}` : i.name;
+          const n = cartN(nm);
+          /* Вариант объёма — такая же строка списка, как одиночная позиция:
+             слева объём, справа цена. Раньше это была широкая кнопка со своим
+             кеглем, и позиции с двумя объёмами выбивались из общего вида. */
+          return `<button data-bi="${key}" data-bp="${k}" class="${n ? "incart" : ""}">
+            <span class="bn">${esc(z.vol)}</span><span class="bp">${z.price} ₽</span>${
+            n ? `<i class="qn">${n}</i>
+            <i class="qb" data-bminus="${esc(nm)}" aria-label="убрать">−</i>` : ""}</button>`;
+        }).join("")}</span></div>`;
+    }
+    const n = cartN(i.name);
+    return `<button data-bi="${key}" data-bp="0" class="${n ? "incart" : ""}">
+      <span class="bn">${esc(i.name)}</span>${i.vol ? `<span class="bv">${esc(i.vol)}</span>` : ""}<span class="bp">${
+      (i.prices[0] || 0)} ₽</span>${n ? `<i class="qn">${n}</i>
+      <i class="qb" data-bminus="${esc(i.name)}" aria-label="убрать">−</i>` : ""}</button>`;
+  }).join("");
+  paintPick();
+}
+function renderBarCart() {
+  if ($("dock")) renderDock();
+  if (!$(barUI.cartWrap)) { renderBarList(); return; }  // в шторке стола корзина — полоса
+  $(barUI.cartWrap).classList.toggle("hide", !barCart.length);
+  const sum = barCart.reduce((a, x) => a + x.n * (x.prices[0] || 0), 0);
+  $(barUI.sum).textContent = barCart.length ? sum + "₽" : "";
+  $(barUI.cart).innerHTML = barCart.map((x, idx) =>
+    `<div class="ci"><b>${esc(x.name)}</b><button data-bm="${idx}">−</button>
+      <span class="q">${x.n}</span><button data-bpl="${idx}">+</button></div>`).join("");
+}
+function barAdd(key, idx) {
+  const it = barFlat().find(i => barKey(i.cat, i) === key); if (!it) return;
+  const sizes = volParts(it);
+  const z = sizes[Math.min(idx || 0, sizes.length - 1)];
+  // размер в названии: бармену важно, наливать 0.3 или литр
+  const name = sizes.length > 1 && z.vol ? `${it.name} ${z.vol}` : it.name;
+  /* Позиция запоминает, кому её записали. Иначе весь заказ уходил одному
+     гостю — тому, что был выбран в момент отправки, — и разделить счёт
+     было уже нельзя. */
+  const hit = barCart.find(x => x.name === name && (x.guest || 0) === guestNow);
+  if (hit) hit.n++;
+  else barCart.push({ name, vol: z.vol, prices: [z.price], n: 1, guest: guestNow });
+  renderBarCart();
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+$("barCats").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bc]"); if (!b) return;
+  barCat = barCat === b.dataset.bc ? null : b.dataset.bc;
+  barQuery = ""; $("barSearch").value = "";
+  renderBarCats(); renderBarList();
+});
+$("barSearch").addEventListener("input", () => {
+  barQuery = $("barSearch").value; barCat = null; renderBarCats(); renderBarList();
+});
+$("barList").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bi]"); if (!b) return;
+  barAdd(b.dataset.bi, +b.dataset.bp || 0);
+});
+$("barCart").addEventListener("click", (e) => {
+  const plus = e.target.closest("[data-bpl]"), minus = e.target.closest("[data-bm]");
+  if (plus) barCart[+plus.dataset.bpl].n++;
+  else if (minus) { const i = +minus.dataset.bm; if (--barCart[i].n <= 0) barCart.splice(i, 1); }
+  else return;
+  renderBarCart();
+});
+
+function renderSayTable() {
+  const busy = Object.keys(tables).filter(k => (tables[k].hookahs || []).length);
+  let html = "";
+  for (let i = 1; i <= (tablesCount || 0); i++) {
+    html += `<button data-st="${i}" class="${i === sayTable ? "on" : ""}${busy.includes(String(i)) ? " busy" : ""}">${i}</button>`;
+  }
+  $("sayTable").innerHTML = html;
+}
+$("sayTable").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-st]"); if (!b) return;
+  sayTable = sayTable === +b.dataset.st ? null : +b.dataset.st;   // повторный тап снимает
+  renderSayTable();
+});
+$("btnSay").onclick = () => openSay("pult");
+$("btnBar").onclick = () => openSay("bar");
+$("sayFreq").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ph]"); if (!b) return;
+  $("sayText").value = b.dataset.ph; $("sayText").focus();
+});
+$("sayCancel").onclick = closeSay;
+$("scrimSay").onclick = closeSay;
+$("sayChips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-s]"); if (!b) return;
+  const cur = $("sayText").value.trim();
+  $("sayText").value = cur ? cur + ", " + b.dataset.s.toLowerCase() : b.dataset.s;
+});
+$("saySend").onclick = async () => {
+  const text = $("sayText").value.trim();
+  const bar = sayTo === "bar";
+  if (bar && !barCart.length && !text) { toast("Пустой заказ", "Отметьте позиции или напишите словами", true); return; }
+  if (!bar && !text) { toast("Пустое сообщение", "", true); return; }
+  const items = barCart.map(x => (x.n > 1 ? x.n + "× " : "") + x.name).join(" · ");
+  /* Заказ на бар уходит СТРУКТУРОЙ, а не текстом: у чека есть состояние, и
+     бармен должен видеть, что уже приготовил, даже после перезагрузки планшета. */
+  if (bar) {
+    if (!sayTable) { toast("Не выбран стол", "Бармену нужно знать, куда готовить", true); return; }
+    closeSay();
+    try {
+      const r = await api("/api/bar", { method: "POST", body: JSON.stringify({
+        table: sayTable, comment: text,
+        items: barCart.map(x => ({ n: x.n, name: x.name, price: x.prices[0] || 0, note: x.note || "" })) }) });
+      const d = await r.json();
+      if (d.ok) {
+        if (text) rememberPhrase("bar", text);
+        toast("Заказ отправлен на бар", `Стол ${sayTable} · ${(items || text).slice(0, 60)}`);
+        if (navigator.vibrate) navigator.vibrate(16);
+        poll();
+      } else toast("Не отправилось", d.error || "", true);
+    } catch (e) { toast("Нет связи", "", true); }
+    return;
+  }
+  try {
+    const r = await api("/api/say", { method: "POST", body: JSON.stringify({ text }) });
+    const d = await r.json();
+    if (d.ok) { rememberPhrase("say", text); closeSay(); toast("Отправлено на планшет", text.slice(0, 40)); }
+    else toast("Не отправилось", d.error || "", true);
+  } catch (e) { toast("Нет связи", "", true); }
+};
+
+/* Самообновление. Пульт — одностраничное приложение: перезаход по ПИНу
+   страницу не перезагружает, поэтому после выкладки устройства продолжали
+   работать на старой версии, пока их не закроют руками. Раз в 3 минуты
+   спрашиваем у сервера метку своей страницы и, если она сменилась,
+   перезагружаемся — но только когда человек не занят: ни одной открытой
+   шторки и ничего не набрано. */
+(function () {
+  /* Метку версии кладём рядом отдельным файлом: сервер пульта не отдаёт
+     ни ETag, ни Last-Modified, а тянуть всю страницу раз в минуту —
+     лишний трафик на вайфае заведения. Сам файл — 16 байт. */
+  const CTX = "pult.newui.ctx";
+  let mine = "";
+  /* «Занят» — это НАБРАННОЕ, а не просто открытый экран. Раньше сюда попадала
+     любая открытая шторка, и пока официант держал стол открытым, устройство
+     сидело на старой версии сколь угодно долго. Теперь ждём только когда есть
+     что потерять: непустая корзина или начатый текст. */
+  /* Даже с пустой корзиной нельзя перезагружать под руками: официант мог
+     только что отправить заказ и читать счёт. Ждём 20 секунд тишины. */
+  let lastTouch = 0;
+  ["pointerdown", "keydown"].forEach(ev =>
+    document.addEventListener(ev, () => { lastTouch = Date.now(); }, true));
+  const busy = () => (document.querySelector(".sheet.on") && Date.now() - lastTouch < 20000) ||
+    (typeof barCart !== "undefined" && barCart.length) ||
+    (document.getElementById("note") || {}).value ||
+    (document.getElementById("sayText") || {}).value ||
+    (document.getElementById("callText") || {}).value ||
+    (document.getElementById("callMsg") || {}).value;
+  /* Перед перезагрузкой запоминаем, где человек стоял: стол, вкладка,
+     категория меню. Иначе обновление выкидывает его в карту столов. */
+  const saveCtx = () => {
+    try {
+      if (typeof callTable === "undefined" || !callTable) return;
+      sessionStorage.setItem(CTX, JSON.stringify({
+        t: callTable, tab: typeof tabNow !== "undefined" ? tabNow : "order",
+        cat: typeof barCat !== "undefined" ? barCat : null, at: Date.now() }));
+    } catch (e) {}
+  };
+  const check = async () => {
+    try {
+      const r = await fetch("build.txt", { cache: "no-store" });
+      if (!r.ok) return;
+      const st = (await r.text()).trim();
+      if (!st) return;
+      if (!mine) { mine = st; return; }
+      if (st !== mine && !busy()) { saveCtx(); location.reload(); }
+    } catch (e) {}
+  };
+  check();
+  setInterval(check, 60 * 1000);
+
+  /* Возврат на место после обновления. Ждём, пока приедут столы, и открываем
+     тот же стол на той же вкладке и категории. Контекст живёт две минуты —
+     дольше он уже не про «сейчас». */
+  let raw = null;
+  try { raw = sessionStorage.getItem(CTX); sessionStorage.removeItem(CTX); } catch (e) {}
+  if (raw) {
+    let c = null;
+    try { c = JSON.parse(raw); } catch (e) {}
+    if (c && c.t && Date.now() - c.at < 120000) {
+      let tries = 0;
+      const wait = setInterval(() => {
+        if (++tries > 60) return clearInterval(wait);
+        if (!document.querySelector("#free button[data-waiter]")) return;
+        clearInterval(wait);
+        try {
+          openTable(c.t);
+          setTimeout(() => {
+            if (c.cat) { barCat = c.cat; renderBarCats(); renderBarList(); }
+            if (c.tab && c.tab !== "order") setTab(c.tab);
+          }, 500);
+        } catch (e) {}
+      }, 250);
+    }
+  }
+})();
+
+// имя точки и число столов
+fetch("/api/config", { cache: "no-store" }).then(r => r.json()).then(d => {
+  if (!d || !d.ok) return;
+  venueName = d.pultName || d.venue || "Пульт";
+  tablesCount = d.tables || 0;
+  if (d.rounds) rounds = [d.rounds.r1, d.rounds.r2, d.rounds.r3];
+  $("loginVenue").textContent = venueName;
+  render();
+}).catch(() => {});
+
+applyMode();
+if (key) { $("login").classList.add("hide"); $("app").classList.remove("hide"); loadMe(); poll(); }
+</script>
+</body>
+</html>

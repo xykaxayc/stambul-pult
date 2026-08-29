@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Забивки · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --bg2: #1e1611; --card: #241a13; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --dim: #6b5848;
+    --ember: #ff7a18; --ember2: #ffb347; --ok: #4cc9a0; --danger: #ff4d4d;
+    --blue: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt); min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: calc(22px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) calc(60px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 26px 0 10px; color: var(--muted); font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  a.back { color: var(--ember2); font-size: 13px; text-decoration: none; white-space: nowrap; }
+
+  .tabs { display: flex; gap: 8px; margin: 0 0 16px; }
+  .tabs button {
+    flex: 1 1 0; padding: 10px 8px; font-weight: 600; font-size: 13px; line-height: 1; font-family: inherit; cursor: pointer;
+    background: var(--bg2); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px;
+  }
+  .tabs button.on { background: rgba(255,122,24,.15); border-color: rgba(255,122,24,.55); color: var(--ember2); }
+
+  .hero {
+    border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+    padding: 16px; margin-bottom: 14px;
+  }
+  .hero .lbl { color: var(--muted); font-size: 12.5px; }
+  .hero .verdict { font-size: 15px; line-height: 1.55; margin-top: 8px; }
+  .hero .verdict b { color: var(--ember2); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px;
+  }
+  .card.foil { border-left: 3px solid var(--ember); }
+  .card.kaloud { border-left: 3px solid var(--blue); }
+  .card.none { border-left: 3px solid var(--dim); }
+  .card .name { font-size: 15px; font-weight: 700; }
+  .card .n { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .big { font-size: 30px; font-weight: 800; margin: 10px 0 2px; font-variant-numeric: tabular-nums; }
+  .big.dim { color: var(--dim); font-size: 20px; font-weight: 600; }
+  .under { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; margin-top: 6px; }
+  .kv span:first-child { color: var(--muted); }
+  .kv span:last-child { font-variant-numeric: tabular-nums; }
+
+  .bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; background: var(--ok); }
+  .bar.warn > i { background: var(--ember2); }
+  .bar.bad > i { background: var(--danger); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tbl-wrap { border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow-x: auto; }
+  .tbl-wrap table { min-width: 380px; }
+  tr:last-child td { border-bottom: none; }
+
+  .note {
+    border: 1px solid var(--line); border-left: 3px solid var(--ember2);
+    background: rgba(255,179,71,.07); border-radius: 12px; padding: 12px 14px;
+    color: var(--ember2); font-size: 13px; line-height: 1.6; margin: 14px 0 0;
+  }
+  .empty { color: var(--muted); font-size: 14px; padding: 12px 2px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px;
+          border: 1px solid var(--line); color: var(--muted); }
+  .pill.foil { color: var(--ember2); border-color: rgba(255,122,24,.5); }
+  .pill.kaloud { color: var(--blue); border-color: rgba(106,169,255,.5); }
+
+  #pinGate { max-width: 340px; margin: 40px auto 0; }
+  input {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--txt); font-size: 16px; line-height: 1.4; font-family: inherit; padding: 12px; width: 100%; margin: 10px 0;
+  }
+  .btn {
+    padding: 12px 16px; background: var(--bg2); color: var(--txt); font-weight: 600; font-size: 14px; line-height: 1; font-family: inherit;
+    border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+  }
+  .btn.primary { background: var(--ember); color: #14100b; border-color: var(--ember); }
+  .hidden { display: none !important; }
+</style>
+<script src="base.js?v=9"></script>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Вход по ПИН любого сотрудника смены -->
+    <div id="pinGate" class="hidden">
+      <h1>Забивки</h1>
+      <p class="sub" id="pinMsg">Введите свой ПИН.</p>
+      <input type="password" id="pin" inputmode="numeric" autocomplete="off" placeholder="ПИН" />
+      <button class="btn primary" id="pinGo" style="width:100%">Войти</button>
+    </div>
+
+    <div id="panel" class="hidden">
+      <div class="head">
+        <h1>🔥 Забивки</h1>
+        <a class="back" href="/pult/">← в пульт</a>
+      </div>
+      <p class="sub">Сколько на самом деле греется кальян на фольге и на калауде — по отметкам кальянщиков.
+        Из этих цифр мы потом соберём точный мультитаймер: сейчас первый круг один на всех, а он должен
+        зависеть от способа.</p>
+
+      <div class="tabs">
+        <button data-d="7" class="on">7 дней</button>
+        <button data-d="14">14 дней</button>
+        <button data-d="30">30 дней</button>
+      </div>
+
+      <div id="hero" class="hero"></div>
+      <div id="cards" class="cards"></div>
+      <div id="advice"></div>
+
+      <h2>Вкусы</h2>
+      <div id="flavors"></div>
+
+      <h2>Кто отмечает</h2>
+      <div id="masters"></div>
+
+      <h2>Последние подачи</h2>
+      <div id="recent"></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const getKey = () => localStorage.getItem("serp.key") || "";
+  const H = () => ({ "X-Pult-Key": getKey() });
+  const esc = (s) => String(s == null ? "" : s).replace(/[<>&"']/g, (c) =>
+    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&#39;", '"': "&quot;" }[c]));
+
+  /* Порог доверия: меньше 10 замеров — это ещё не статистика, а анекдот.
+     Нормативом можно объявлять от 30 замеров на способ. */
+  const MIN_SAMPLES = 10, ENOUGH = 30;
+  const HEAT_NAME = { foil: "🔥 Фольга", kaloud: "⚙️ Калауд", none: "Без отметки" };
+
+  const ms = (s) => s == null ? "—"
+    : Math.floor(s / 60) + ":" + String(Math.round(s % 60)).padStart(2, "0");
+  const hhmm = (ts) => { const d = new Date(ts);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+
+  let days = 7, data = null;
+
+  function heatCard(key, h) {
+    if (!h) return "";
+    const r = h.ready || {}, sv = h.served || {}, sc = h.service || {};
+    const few = (r.n || 0) < MIN_SAMPLES;
+    return `<div class="card ${key}">
+      <div class="name">${HEAT_NAME[key] || esc(key)}</div>
+      <div class="n">${h.starts || 0} запусков · ${r.n || 0} замеров прогрева</div>
+      ${few
+        ? `<div class="big dim">мало данных</div>
+           <div class="under">Нужно хотя бы ${MIN_SAMPLES} отметок «прогрелся», сейчас ${r.n || 0}.</div>`
+        : `<div class="big">${ms(r.med)}</div>
+           <div class="under">медиана прогрева · разброс ${ms(r.min)}–${ms(r.max)}</div>
+           <div class="kv"><span>успевают в</span><span>${ms(r.p80)} (8 из 10)</span></div>
+           <div class="kv"><span>среднее</span><span>${ms(r.avg)}</span></div>`}
+      ${sv.n ? `<div class="kv"><span>до гостя всего</span><span>${ms(sv.med)} · ${sv.n} шт</span></div>` : ""}
+      ${sc.n ? `<div class="kv"><span>от прогрева до подачи</span><span>${ms(sc.med)}</span></div>` : ""}
+    </div>`;
+  }
+
+  function draw() {
+    const d = data;
+    const t = d.totals || {};
+    const cover = t.starts ? Math.round((t.withHeat / t.starts) * 100) : 0;
+    const coverCls = cover >= 80 ? "" : cover >= 50 ? " warn" : " bad";
+    $("hero").innerHTML = `
+      <div class="lbl">Заполняемость забивок за ${d.days} дней</div>
+      <div class="big">${t.starts ? cover + "%" : "—"}</div>
+      <div class="under">${t.withHeat || 0} из ${t.starts || 0} кальянов отмечены${
+        t.lateBuild ? " · из них " + t.lateBuild + " дописали после запуска" : ""}</div>
+      <div class="bar${coverCls}"><i style="width:${cover}%"></i></div>
+      <div class="verdict">${verdict()}</div>`;
+
+    const H2 = d.heats || {};
+    $("cards").innerHTML = ["foil", "kaloud"].map((k) => heatCard(k, H2[k])).join("")
+      + (H2.none && (H2.none.ready || {}).n ? heatCard("none", H2.none) : "");
+
+    $("advice").innerHTML = advice();
+
+    const fl = (d.flavors || []).filter((f) => f.n > 0);
+    $("flavors").innerHTML = fl.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Вкус</th><th class="num">Заказов</th><th class="num">Прогрев</th></tr>
+      ${fl.map((f) => `<tr><td>${esc(f.name)}</td><td class="num">${f.n}</td>
+        <td class="num">${f.samples >= 3 ? ms(f.ready) : "—"}</td></tr>`).join("")}
+    </table></div>` : `<p class="empty">Вкусы ещё не вписывали.</p>`;
+
+    const mst = (d.masters || []).filter((m) => m.served.n || m.ready.n);
+    $("masters").innerHTML = mst.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Кальянщик</th><th class="num">Отметок</th><th class="num">Прогрев</th><th class="num">До гостя</th></tr>
+      ${mst.map((m) => `<tr><td>${esc(m.who)}</td>
+        <td class="num">${m.served.n || 0}</td>
+        <td class="num">${m.ready.n >= 3 ? ms(m.ready.med) : "—"}</td>
+        <td class="num">${m.served.n >= 3 ? ms(m.served.med) : "—"}</td></tr>`).join("")}
+    </table></div>` : `<p class="empty">Этапы прогрева пока никто не отмечал.</p>`;
+
+    const rec = d.recent || [];
+    $("recent").innerHTML = rec.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Время</th><th>Стол</th><th>Забивка</th><th class="num">До гостя</th></tr>
+      ${rec.map((r) => `<tr>
+        <td>${hhmm(r.ts)}</td>
+        <td>${esc(r.t)}</td>
+        <td>${r.heat ? `<span class="pill ${r.heat}">${HEAT_NAME[r.heat]}</span> ` : ""}${esc(r.fl || "")}</td>
+        <td class="num">${ms(r.servedS)}</td></tr>`).join("")}
+    </table></div>` : `<p class="empty">Подач пока нет.</p>`;
+  }
+
+  /* Главный вывод одной фразой — чтобы не читать таблицы. */
+  function verdict() {
+    const f = ((data.heats || {}).foil || {}).ready || {};
+    const k = ((data.heats || {}).kaloud || {}).ready || {};
+    if ((f.n || 0) < MIN_SAMPLES && (k.n || 0) < MIN_SAMPLES)
+      return "Данных пока мало. Пусть кальянщики отмечают «прогрелся» и «отдал гостю» — через несколько смен здесь появится норматив.";
+    if ((f.n || 0) >= MIN_SAMPLES && (k.n || 0) >= MIN_SAMPLES) {
+      const diff = Math.abs(f.med - k.med);
+      if (diff < 60) return `Фольга и калауд греются примерно одинаково — <b>${ms(f.med)}</b> и <b>${ms(k.med)}</b>. Разделять таймер по способу смысла нет.`;
+      const slower = f.med > k.med ? "Фольга" : "Калауд";
+      return `${slower} греется дольше на <b>${ms(diff)}</b>: фольга <b>${ms(f.med)}</b>, калауд <b>${ms(k.med)}</b>. Это и есть повод сделать разные первые круги.`;
+    }
+    const one = (f.n || 0) >= MIN_SAMPLES ? ["Фольга", f] : ["Калауд", k];
+    return `${one[0]} греется <b>${ms(one[1].med)}</b> (медиана по ${one[1].n} замерам). По второму способу данных ещё мало.`;
+  }
+
+  /* Что с этим делать дальше — прямая рекомендация по настройке кругов. */
+  function advice() {
+    const f = ((data.heats || {}).foil || {}).ready || {};
+    const k = ((data.heats || {}).kaloud || {}).ready || {};
+    const ready = [f, k].filter((x) => (x.n || 0) >= ENOUGH).length;
+    if (!ready) {
+      const have = Math.max(f.n || 0, k.n || 0);
+      return `<div class="note">Норматив можно назначать от ${ENOUGH} замеров на способ — сейчас максимум ${have}.
+        До тех пор мультитаймер трогать не надо: первый круг остаётся общим.</div>`;
+    }
+    const line = (name, x) => (x.n || 0) >= ENOUGH
+      ? `${name}: прогрев <b>${ms(x.p80)}</b> (успевают 8 из 10) + курение` : "";
+    return `<div class="note">Замеров хватает. Предложение по первому кругу:<br>
+      ${[line("🔥 фольга", f), line("⚙️ калауд", k)].filter(Boolean).join("<br>")}<br>
+      Скажите — разделю первый круг по способу прогрева в самом пульте.</div>`;
+  }
+
+  async function load() {
+    try {
+      const r = await fetch("/api/build?d=" + days, { headers: H(), cache: "no-store" });
+      if (r.status === 401) { showGate("Сессия истекла — введите ПИН."); return; }
+      if (r.status === 403) { showGate("Конструктор забивки пока в бете — доступен только администратору."); return; }
+      const d = await r.json();
+      if (!d.ok) return;
+      data = d;
+      draw();
+    } catch {}
+  }
+
+  for (const b of document.querySelectorAll(".tabs button"))
+    b.addEventListener("click", () => {
+      for (const x of document.querySelectorAll(".tabs button")) x.classList.remove("on");
+      b.classList.add("on");
+      days = +b.dataset.d;
+      load();
+    });
+
+  function showGate(msg) {
+    $("panel").classList.add("hidden");
+    $("pinGate").classList.remove("hidden");
+    if (msg) $("pinMsg").textContent = msg;
+    $("pin").focus();
+  }
+  function openPanel() {
+    $("pinGate").classList.add("hidden");
+    $("panel").classList.remove("hidden");
+    load();
+  }
+  $("pinGo").addEventListener("click", async () => {
+    const pin = $("pin").value.trim();
+    if (!pin) return;
+    $("pinMsg").textContent = "Проверяю…";
+    try {
+      const d = await (await fetch("/api/login", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) })).json();
+      if (!d.ok) { $("pinMsg").textContent = d.error || "Не получилось войти"; return; }
+      localStorage.setItem("serp.key", d.token);
+      localStorage.setItem("serp.me", JSON.stringify({ name: d.name, role: d.role }));
+      $("pin").value = "";
+      openPanel();
+    } catch { $("pinMsg").textContent = "Нет связи с сервером"; }
+  });
+  $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pinGo").click(); });
+
+  (async () => {
+    if (!getKey()) { showGate(); return; }
+    try {
+      const r = await fetch("/api/me", { headers: H() });
+      if (r.status === 401) { showGate(); return; }
+      const d = await r.json();
+      if (d.ok) openPanel(); else showGate();
+    } catch { showGate("Нет связи с сервером."); }
+  })();
+
+  setInterval(() => { if (!$("panel").classList.contains("hidden")) load(); }, 60000);
+</script>
+<script src="nav.js?v=7" defer></script>
+</body>
+</html>

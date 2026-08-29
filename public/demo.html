@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Демо · Серп</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<link rel="shortcut icon" href="/favicon.ico?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --card: #241a13; --bg2: #1e1611; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --ember: #ff7a18; --ember2: #ffb347;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; touch-action: manipulation; overscroll-behavior: none; }
+  body {
+    background: radial-gradient(900px 500px at 50% -10%, #2a1d12 0%, transparent 60%), var(--bg);
+    color: var(--txt); font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    display: grid; place-items: center; padding: 24px;
+  }
+  .scene { text-align: center; max-width: 420px; }
+  .hint { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 0 22px; }
+  .hint b { color: var(--ember2); }
+  /* наклейка на столе — как настоящая, белая */
+  .sticker {
+    display: inline-block; cursor: pointer; text-decoration: none;
+    background: #fff; color: #111; border-radius: 20px; padding: 22px 26px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55);
+    transform: rotate(-1.5deg);
+    transition: transform .15s;
+    animation: breathe 2.6s ease-in-out infinite;
+  }
+  .sticker:active { transform: rotate(-1.5deg) scale(.96); }
+  @keyframes breathe {
+    0%,100% { box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 0 0 0 rgba(255,122,24,.0); }
+    50%     { box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 0 0 12px rgba(255,122,24,.18); }
+  }
+  .sticker .venue { font-weight: 800; font-size: 15px; letter-spacing: .5px; }
+  .sticker .table { font-size: 30px; font-weight: 900; margin: 4px 0 6px; }
+  .sticker img { width: 220px; height: 220px; display: block; margin: 0 auto; }
+  .sticker .sub { font-size: 13px; color: #444; line-height: 1.35; margin-top: 6px; }
+  .tap {
+    margin-top: 26px; color: var(--ember2); font-size: 15px; font-weight: 700;
+    animation: bounce 1.4s ease-in-out infinite;
+  }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+</style>
+</head>
+<body>
+<div class="scene">
+  <p class="hint">Так гость видит наклейку на столе.<br />Обычно её <b>сканируют камерой</b> — для демо просто нажмите на неё.</p>
+  <a class="sticker" href="/t/5-3b84f05c22">
+    <div class="venue">🌙 СЕРП НА КРЫШЕ</div>
+    <div class="table">Стол 5</div>
+    <img src="/qr/t-5-3b84f05c22.png" alt="QR стол 5" />
+    <div class="sub">Наведите камеру —<br />позовите кальянщика со стола</div>
+  </a>
+  <div class="tap">👆 нажмите на QR-код</div>
+</div>
+</body>
+</html>

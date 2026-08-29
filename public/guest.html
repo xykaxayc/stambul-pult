@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#15100c" />
+<title>Серп · вызов кальянщика</title>
+<link rel="icon" type="image/png" href="/favicon.png?v=4" />
+<link rel="shortcut icon" href="/favicon.ico?v=4" />
+<style>
+  :root {
+    --bg: #15100c; --bg2: #1e1611; --card: #241a13; --line: #3a2c20;
+    --txt: #f3e9df; --muted: #a08b78; --ember: #ff7a18; --ember2: #ffb347;
+    --ok: #4cc9a0; --danger: #ff4d4d;
+    --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; touch-action: manipulation; overscroll-behavior: none; }
+  body {
+    background: radial-gradient(900px 500px at 50% -10%, #2a1d12 0%, transparent 60%), var(--bg);
+    color: var(--txt); min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: calc(28px + var(--safe-t)) 18px calc(28px + var(--safe-b));
+  }
+  .wrap { max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .head { text-align: center; margin-bottom: 6px; }
+  .head .logo { font-size: 40px; }
+  .head h1 { margin: 6px 0 2px; font-size: 24px; letter-spacing: .4px; }
+  .head .table {
+    display: inline-block; margin-top: 8px; padding: 7px 18px; border-radius: 999px;
+    background: rgba(255,122,24,.14); color: var(--ember2);
+    font-weight: 800; font-size: 17px; letter-spacing: .3px;
+  }
+  .call-btn {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    background: linear-gradient(165deg, var(--card), var(--bg2));
+    border: 1.5px solid var(--line); border-radius: 20px;
+    padding: 18px; color: var(--txt); font-size: 17px; font-weight: 700;
+    cursor: pointer; transition: transform .08s, border-color .2s; text-align: left;
+  }
+  .call-btn:active { transform: scale(.97); }
+  .call-btn .ico {
+    width: 52px; height: 52px; border-radius: 16px; flex: 0 0 auto;
+    display: grid; place-items: center; font-size: 26px;
+    background: rgba(255,122,24,.14);
+  }
+  .call-btn small { display: block; color: var(--muted); font-size: 13px; font-weight: 500; margin-top: 3px; }
+  .call-btn.primary { border-color: rgba(255,122,24,.55); }
+  .call-btn.primary .ico { background: linear-gradient(135deg, var(--ember), #e85d04); }
+  textarea {
+    width: 100%; min-height: 76px; resize: vertical;
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 14px;
+    color: var(--txt); font: 15px/1.4 inherit; padding: 12px;
+  }
+  .send-btn {
+    width: 100%; padding: 15px; border: none; border-radius: 16px; cursor: pointer;
+    background: linear-gradient(135deg, var(--ember), #e85d04);
+    color: #fff; font-size: 16px; font-weight: 800;
+  }
+  .send-btn:disabled { opacity: .5; }
+  .status {
+    border-radius: 20px; padding: 20px; text-align: center;
+    background: linear-gradient(165deg, var(--card), var(--bg2));
+    border: 1.5px solid rgba(76,201,160,.4);
+  }
+  .status .big { font-size: 34px; }
+  .status h2 { margin: 8px 0 4px; font-size: 19px; }
+  .status p { margin: 0; color: var(--muted); font-size: 14px; }
+  .status.acked { border-color: var(--ok); }
+  .info {
+    background: linear-gradient(165deg, var(--card), var(--bg2));
+    border: 1px solid var(--line); border-radius: 20px; padding: 18px;
+  }
+  .info h3 { margin: 0 0 8px; font-size: 15px; color: var(--ember2); }
+  .info p { margin: 0 0 8px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+  .info p:last-child { margin-bottom: 0; }
+  .err { color: var(--danger); text-align: center; font-size: 14px; min-height: 18px; margin: 0; }
+  .foot { text-align: center; color: var(--free, #6b5848); font-size: 12px; color: #6b5848; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo">🌙</div>
+    <h1>Серп</h1>
+    <span class="table" id="tableBadge">Стол …</span>
+  </div>
+
+  <div id="buttons">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <button class="call-btn primary" data-kind="master">
+        <span class="ico">🫖</span>
+        <span>Позвать кальянщика<small>подойдёт к вашему столу</small></span>
+      </button>
+      <button class="call-btn" data-kind="coals">
+        <span class="ico">🔥</span>
+        <span>Заменить угли<small>освежим жар без ожидания</small></span>
+      </button>
+      <button class="call-btn" data-kind="other" data-comment="1" id="otherBtn">
+        <span class="ico">✍️</span>
+        <span>Другой вопрос<small>напишите пару слов — придём с ответом</small></span>
+      </button>
+    </div>
+    <div id="otherBox" class="hidden" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+      <textarea id="comment" maxlength="200" placeholder="Например: слабо курится / нужна новая чаша / принесите колпак…"></textarea>
+      <button class="send-btn" id="sendOther">Отправить кальянщику</button>
+    </div>
+    <p class="err" id="err"></p>
+  </div>
+
+  <div id="statusBox" class="status hidden">
+    <div class="big" id="stIcon">🔔</div>
+    <h2 id="stTitle">Вызов отправлен</h2>
+    <p id="stText">Кальянщик увидит его на пульте с секунды на секунду.</p>
+  </div>
+
+  <div class="info" id="infoBox">
+    <h3>Пока вы ждёте</h3>
+    <p>Кальянщик видит вызов сразу — звонить или ловить его взглядом не нужно.</p>
+    <p>Хотите новый вкус? Скажите кальянщику про крепость и настроение — соберёт микс под вас.</p>
+  </div>
+
+  <div class="foot">Серп · вызов со стола</div>
+</div>
+
+<script>
+"use strict";
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("dblclick", (e) => e.preventDefault());
+const table = +(location.pathname.match(/\/t\/(\d+)/) || [])[1] || 0;
+document.getElementById("tableBadge").textContent = "Стол " + table;
+
+// метка устройства: выдаётся один раз, живёт в браузере телефона
+let did = localStorage.getItem("serp.did") || "";
+if (!/^[a-f0-9]{16}$/.test(did)) {
+  did = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  try { localStorage.setItem("serp.did", did); } catch {}
+}
+
+/* Отметка «страницу открыли» — даже если гость ничего не нажмёт: по ней видно,
+   что наклейки сканируют и связка работает. Тихо, ошибку глотаем. Сервер
+   схлопывает повторы одного устройства за 15 минут. */
+if (table) {
+  const vbody = JSON.stringify({ table, did });
+  let vsent = false;
+  try { if (navigator.sendBeacon) vsent = navigator.sendBeacon("/api/visit", new Blob([vbody], { type: "application/json" })); } catch {}
+  if (!vsent) { try { fetch("/api/visit", { method: "POST", headers: { "Content-Type": "application/json" }, body: vbody, keepalive: true }).catch(() => {}); } catch {} }
+}
+
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[<>&"']/g, (ch) =>
+  ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[ch]));
+// подписи «что происходит после нажатия»; при загрузке настроек заменяются серверными
+let KIND_TXT = { master: "Кальянщик уже идёт к вам", coals: "Сейчас обновим угли", other: "Вопрос передан кальянщику" };
+let commentKind = "other";   // кнопка «с полем для текста», которую открыл гость
+let watching = null;
+
+/* кнопки живут и умирают динамически — слушаем контейнер, а не каждую */
+document.getElementById("buttons").addEventListener("click", (e) => {
+  const b = e.target.closest(".call-btn");
+  if (!b) return;
+  const kind = b.dataset.kind;
+  if (b.dataset.comment) { commentKind = kind; $("otherBox").classList.toggle("hidden"); return; }
+  send(kind, "");
+});
+$("sendOther").addEventListener("click", () => {
+  const t = $("comment").value.trim();
+  if (!t) { $("err").textContent = "Напишите пару слов — что нужно?"; return; }
+  send(commentKind, t);
+});
+
+/* кнопки и «Пока вы ждёте» приходят с сервера — их правит админ с пульта.
+   Если настройки не доехали (офлайн), остаются зашитые в страницу. */
+function renderGuestUi(d) {
+  if (Array.isArray(d.buttons) && d.buttons.length) {
+    KIND_TXT = {};
+    document.querySelector("#buttons > div").innerHTML = d.buttons.map((b, i) => {
+      KIND_TXT[b.id] = b.done || "Передали кальянщику";
+      return `<button class="call-btn${i === 0 ? " primary" : ""}" data-kind="${esc(b.id)}"${b.withComment ? ' data-comment="1"' : ""}>
+        <span class="ico">${esc(b.icon || "🔔")}</span>
+        <span>${esc(b.label)}${b.sub ? `<small>${esc(b.sub)}</small>` : ""}</span>
+      </button>`;
+    }).join("");
+  }
+  if (typeof d.info === "string") {
+    const box = $("infoBox");
+    if (d.info.trim()) {
+      box.classList.remove("hidden");
+      box.innerHTML = "<h3>Пока вы ждёте</h3>" +
+        d.info.split("\n").filter((p) => p.trim()).map((p) => `<p>${esc(p.trim())}</p>`).join("");
+    } else box.classList.add("hidden");            // пустой текст — блок скрыт совсем
+  }
+}
+
+async function checkOpen() {
+  try {
+    const d = await (await fetch("/api/config")).json();
+    if (d.ok) renderGuestUi(d);
+    if (d.ok && d.blockGuests) {
+      $("buttons").classList.add("hidden");
+      const box = $("statusBox");
+      box.classList.remove("hidden");
+      $("stIcon").textContent = "🔧";
+      $("stTitle").textContent = "Идут технические работы";
+      $("stText").textContent = "Кнопка вызова временно не работает — позовите кальянщика рукой, он рядом.";
+      return;
+    }
+    if (d.ok && d.open === false) {
+      $("buttons").classList.add("hidden");
+      const box = $("statusBox");
+      box.classList.remove("hidden");
+      $("stIcon").textContent = "🌙";
+      $("stTitle").textContent = "Сейчас закрыто";
+      $("stText").textContent = "Ждём вас с 12:00 до 04:00 — тогда кнопка вызова снова заработает.";
+    }
+  } catch {}
+}
+checkOpen();
+
+async function send(kind, comment) {
+  $("err").textContent = "";
+  try {
+    const r = await fetch("/api/call", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ table, kind, comment, did }) });
+    const d = await r.json();
+    if (!d.ok) { $("err").textContent = d.error || "Не получилось, попробуйте ещё раз"; return; }
+    showStatus(kind, d.repeated);
+    watch(d.id);
+  } catch { $("err").textContent = "Нет связи — проверьте интернет и попробуйте снова"; }
+}
+
+function showStatus(kind, repeated) {
+  $("buttons").classList.add("hidden");
+  $("statusBox").classList.remove("hidden");
+  $("stTitle").textContent = repeated ? "Вызов уже в работе" : "Вызов отправлен";
+  $("stText").textContent = KIND_TXT[kind] || "";
+}
+
+function watch(id) {
+  clearInterval(watching);
+  watching = setInterval(async () => {
+    try {
+      const d = await (await fetch("/api/call/" + id)).json();
+      if (!d.ok) return;
+      if (d.status === "acked" || d.status === "done") {
+        const box = $("statusBox");
+        box.classList.add("acked");
+        $("stIcon").textContent = "✅";
+        $("stTitle").textContent = "Кальянщик принял вызов";
+        $("stText").textContent = "Уже идёт к столу " + table;
+        if (d.status === "done") { clearInterval(watching); setTimeout(reset, 20000); }
+      }
+    } catch {}
+  }, 4000);
+  // через 3 минуты вернуть кнопки — вдруг нужно позвать ещё раз
+  setTimeout(reset, 3 * 60 * 1000);
+}
+function reset() {
+  clearInterval(watching);
+  $("statusBox").classList.add("hidden");
+  $("statusBox").classList.remove("acked");
+  $("stIcon").textContent = "🔔";
+  $("buttons").classList.remove("hidden");
+  $("otherBox").classList.add("hidden");
+  $("comment").value = "";
+}
+</script>
+</body>
+</html>

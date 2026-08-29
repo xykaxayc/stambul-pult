@@ -1,0 +1,312 @@
+/* ==========================================================================
+   iOS-скин пульта — работает ТОЛЬКО в нативном приложении.
+   Класс .native на <html> вешает инлайн-скрипт в index.html по протоколу
+   capacitor:// — в браузере и PWA протокол https, класса нет, файл инертен.
+
+   Разметка, логика и палитра остаются общими с вебом. Здесь меняются только
+   материалы и движение, чтобы приложение ощущалось родным для iOS:
+   размытые панели, нижние шторки вместо центральных окон, системные
+   тумблеры, круглые кнопки шапки, SF Rounded в цифрах.
+
+   ⚠️ У плиток НЕЛЬЗЯ ставить border: none — состояния .called/.alarm/.armtap
+   показываются рамкой, и правило с html.native их перебьёт по специфичности.
+   Гасим рамку прозрачностью и возвращаем состояниям явно.
+   ========================================================================== */
+
+html.native {
+  /* формы чуть мягче вебовских: у iOS скругления крупные и непрерывные */
+  --r-sm: 12px;
+  --r-md: 14px;
+  --r-lg: 22px;
+}
+
+/* ------------------------------------------------- фон и типографика ---- */
+
+/* Фон ровный, без радиального «костра»: iOS-приложения стоят на спокойной
+   подложке, глубину дают материалы панелей, а не градиент задника. */
+html.native body {
+  background: #100c09;
+}
+html.native body.light {
+  background: #f2efe9;
+}
+
+/* Цифры — SF Rounded: главный «родной» сигнал для глаза на iOS.
+   Только цифры (таймеры, номера столов): текст остаётся обычным SF. */
+html.native .tl-num,
+html.native .tl-timer,
+html.native .hk-t,
+html.native .dial-t,
+html.native .dial-round,
+html.native .inf-clock,
+html.native .vc-mic,
+html.native .mt-t {
+  font-family: ui-rounded, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+}
+
+/* --------------------------------------------- шапка: навигационная панель -
+   Полупрозрачный материал с блюром и волосяной линией вместо картонной
+   полосы с рамкой — как системный navigation bar. */
+html.native .topbar {
+  background: rgba(16, 12, 9, .72);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: .5px solid rgba(255, 255, 255, .09);
+}
+html.native body.light .topbar {
+  background: rgba(247, 243, 237, .78);
+  border-bottom-color: rgba(36, 26, 19, .1);
+}
+
+/* Кнопки шапки — круглые «монетки» без рамок, как в Картах и Фото.
+   Нажатие — системное затемнение, а не сжатие: сжатие оставляем плиткам. */
+html.native .icon-btn,
+html.native .shift-btn {
+  border: none;
+  background: rgba(255, 255, 255, .09);
+  transition: opacity .15s;
+}
+html.native .icon-btn { border-radius: 50%; }
+html.native .shift-btn { border-radius: var(--r-pill); }
+html.native .icon-btn:active,
+html.native .shift-btn:active { transform: none; opacity: .5; }
+html.native body.light .icon-btn,
+html.native body.light .shift-btn { background: rgba(36, 26, 19, .07); }
+html.native .shift-btn.on { background: rgba(76, 201, 160, .16); }
+
+/* Погода — тот же материал, что шапка, без своей рамки */
+html.native .wx-bar {
+  background: rgba(255, 255, 255, .04);
+  border-bottom: .5px solid rgba(255, 255, 255, .07);
+}
+html.native body.light .wx-bar {
+  background: rgba(36, 26, 19, .04);
+  border-bottom-color: rgba(36, 26, 19, .08);
+}
+
+/* ------------------------------------------- меню «ещё»: системное меню --
+   Сплошной блок на размытом материале: пункты без зазоров, между ними
+   волосяные разделители, выпадает пружинкой из угла кнопки. */
+html.native .more-menu {
+  gap: 0;
+  padding: var(--sp-1) 0;
+  border: none;
+  border-radius: 16px;
+  background: rgba(37, 30, 24, .84);
+  -webkit-backdrop-filter: saturate(180%) blur(25px);
+  backdrop-filter: saturate(180%) blur(25px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .55);
+  min-width: 240px;
+  overflow: hidden;
+  transform-origin: top right;
+  animation: nMenuIn .22s cubic-bezier(.2, .9, .3, 1.05);
+}
+@keyframes nMenuIn {
+  from { opacity: 0; transform: scale(.86); }
+  to   { opacity: 1; transform: scale(1); }
+}
+html.native .more-menu .icon-btn {
+  border-radius: 0;
+  min-height: 46px;
+}
+html.native .more-menu .icon-btn + .icon-btn {
+  border-top: .5px solid rgba(255, 255, 255, .08);
+}
+html.native body.light .more-menu {
+  background: rgba(250, 247, 242, .88);
+  box-shadow: 0 16px 48px rgba(36, 26, 19, .25);
+}
+html.native body.light .more-menu .icon-btn + .icon-btn {
+  border-top-color: rgba(36, 26, 19, .08);
+}
+
+/* --------------------------------------------------- плитки: карточки ----
+   Без рамок: разницу состояний держит заливка, как у системных карточек.
+   Рамку оставляем прозрачной (не none!) — состояния ниже возвращают цвет. */
+html.native .tile {
+  border-color: transparent;
+  background: #1e1812;
+}
+html.native .tile.idle {
+  background: #16110d;
+  border-color: transparent;
+}
+html.native .tile.active { border-color: transparent; }
+html.native body.light .tile {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(36, 26, 19, .08);
+}
+html.native body.light .tile.idle {
+  background: #eae3d8;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* состояниям рамка нужна — возвращаем явно, иначе перебьём их правила */
+html.native .tile.called,
+html.native .tile.alarm,
+html.native .tile.alarm[class*="rd"] { border-color: var(--danger); }
+html.native .tile.armtap,
+html.native .tile.idle.armtap { border-color: #ffd23f; }
+html.native .tile.active[class*="rd"] {
+  border-color: color-mix(in srgb, var(--rd) 70%, #000);
+}
+
+/* нажатие — глубже и с пружинкой */
+html.native .tile {
+  transition: border-color .6s, background .6s, opacity .3s,
+              transform .3s cubic-bezier(.25, 1, .4, 1);
+}
+html.native .tile:active { transform: scale(.965); }
+
+/* ------------------------------------------------- окна: нижние шторки ---
+   На телефоне окно приезжает снизу шторкой с «ручкой», как системный sheet.
+   На широком экране (планшет) остаётся центральной карточкой — там шторка
+   на всю ширину выглядела бы нелепо. */
+html.native .modal {
+  background: rgba(0, 0, 0, .48);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: nDim .25s ease-out;
+}
+@keyframes nDim {
+  from { background: rgba(0, 0, 0, 0); }
+  to   { background: rgba(0, 0, 0, .48); }
+}
+html.native .modal-card {
+  background: #221b14;
+  border: none;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .6);
+}
+html.native body.light .modal { background: rgba(36, 26, 19, .35); }
+html.native body.light .modal-card { background: #faf7f2; }
+
+@media (max-width: 700px) {
+  html.native .modal {
+    place-items: end stretch;
+    padding: 0;
+  }
+  html.native .modal-card,
+  html.native .modal-card.wide-card {
+    width: 100%;
+    max-width: none;
+    max-height: 92vh;
+    max-height: 92dvh;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: calc(var(--sp-5) + var(--safe-b));
+    animation: nSheetUp .34s cubic-bezier(.32, .72, .28, 1);
+  }
+  /* «ручка» шторки — декорация, но именно она делает окно шторкой */
+  html.native .modal-card::before {
+    content: "";
+    display: block;
+    width: 36px; height: 5px;
+    margin: -6px auto 14px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .26);
+  }
+  html.native body.light .modal-card::before { background: rgba(36, 26, 19, .22); }
+}
+@keyframes nSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* ------------------------------------------------------------- кнопки ----
+   Плоские заливки вместо градиентов: цветная — сплошным тоном, второстепенная —
+   серым материалом. Тёмные чернила на янтаре оставляем — это контраст. */
+html.native .btn {
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .09);
+  transition: transform .15s, opacity .15s;
+}
+html.native .btn:active { transform: scale(.97); opacity: .75; }
+html.native .btn.primary,
+html.native .btn.go { background: #ff8a2a; color: #1a0f04; }
+html.native .btn.serve { background: var(--ok); color: #06251c; }
+html.native .btn.ghost { background: rgba(255, 255, 255, .07); }
+html.native body.light .btn { background: rgba(36, 26, 19, .06); }
+html.native body.light .btn.ghost { background: rgba(36, 26, 19, .05); }
+html.native body.light .btn.primary,
+html.native body.light .btn.go { background: #f08a1c; color: #14100b; }
+html.native body.light .btn.serve { background: #0f7a55; color: #fff; }
+
+/* ------------------------------------------- поля ввода: залитые, без рамок */
+html.native .field input[type="number"],
+html.native .field input[type="text"],
+html.native .field input[type="password"],
+html.native .bd-search,
+html.native .add-row input,
+html.native .crew-sec textarea,
+html.native .svc-note,
+html.native .vc-fl {
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .08);
+}
+html.native body.light .field input,
+html.native body.light .bd-search,
+html.native body.light .add-row input,
+html.native body.light .crew-sec textarea,
+html.native body.light .svc-note { background: rgba(36, 26, 19, .06); }
+html.native .field select {
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .08);
+  color: var(--txt);
+  padding: var(--sp-3);
+  font-size: var(--fs-lg);
+  font-family: inherit;
+}
+html.native body.light .field select { background: rgba(36, 26, 19, .06); }
+
+/* --------------------------------------------- галочки → тумблеры iOS ----
+   Настоящий размер системного переключателя: 51×31, белая шайба, зелёный
+   ход. Это самый узнаваемый нативный элемент — ради него всё и затевалось. */
+html.native .switch-row input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 51px; height: 31px;
+  margin: 0;
+  position: relative;
+  border-radius: var(--r-pill);
+  background: rgba(120, 120, 128, .34);
+  transition: background .25s;
+  cursor: pointer;
+}
+html.native .switch-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 27px; height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .28), 0 1px 1px rgba(0, 0, 0, .14);
+  transition: transform .25s cubic-bezier(.3, .9, .45, 1.05);
+}
+html.native .switch-row input[type="checkbox"]:checked { background: #34c759; }
+html.native .switch-row input[type="checkbox"]:checked::after { transform: translateX(20px); }
+html.native body.light .switch-row input[type="checkbox"] { background: rgba(120, 120, 128, .26); }
+
+/* ------------------------------------------------------- ленты и чипы ---- */
+html.native .call-chip,
+html.native .ord-chip,
+html.native .ev-chip { border-radius: 16px; }
+html.native .hist-row,
+html.native .inf-row,
+html.native .staff-row,
+html.native .vc-row { border-radius: var(--r-md); }
+
+/* подсказка «горит вне экрана» — капсула на размытом материале */
+html.native .offscreen {
+  border: none;
+  background: rgba(58, 23, 16, .86);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+html.native body.light .offscreen { background: rgba(255, 233, 228, .92); }
+
+/* ------------------------------------------------------ экран загрузки --- */
+html.native #boot { background: #100c09; }
+html.native body.light #boot { background: #f2efe9; }
+html.native .boot-logo { border-radius: 22.5%; }  /* пропорция иконки iOS */
